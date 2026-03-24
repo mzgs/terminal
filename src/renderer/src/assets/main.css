@@ -103,6 +103,13 @@ body {
   -webkit-app-region: drag;
 }
 
+.tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
 .tab-strip::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -220,12 +227,30 @@ body {
 }
 
 .tab-action {
+  display: inline-grid;
+  place-items: center;
   width: 30px;
   height: 30px;
+  padding: 0;
   border-radius: 6px;
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
+}
+
+.tab-action-static {
+  cursor: default;
+  color: rgba(214, 223, 236, 0.78);
+}
+
+.tab-action-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-action-icon-image {
+  display: block;
+  object-fit: contain;
 }
 
 .tab-button:hover,
