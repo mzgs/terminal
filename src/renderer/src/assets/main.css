@@ -253,11 +253,6 @@ body {
   stroke-width: 2.25;
 }
 
-.tab-action-icon-image {
-  display: block;
-  object-fit: contain;
-}
-
 .tab-button:hover,
 .tab-action:hover,
 .tab-close:hover {

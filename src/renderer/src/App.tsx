@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
-import { Plus, X } from 'lucide-react'
+import { Plus, Server, X } from 'lucide-react'
 import { Reorder, useDragControls } from 'motion/react'
 import '@xterm/xterm/css/xterm.css'
-import serverIcon from './assets/server.png'
 
 type TabStatus = 'connecting' | 'ready' | 'closed'
 
@@ -208,14 +207,7 @@ function ReorderableTab({
 }
 
 function SshIcon(): React.JSX.Element {
-  return (
-    <img
-      alt=""
-      aria-hidden="true"
-      className="tab-action-icon tab-action-icon-image"
-      src={serverIcon}
-    />
-  )
+  return <Server aria-hidden="true" className="tab-action-icon" />
 }
 
 function App(): React.JSX.Element {
