@@ -363,7 +363,14 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#000000',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          trafficLightPosition: { x: 16, y: 16 }
+        }
+      : {
+          titleBarStyle: 'default' as const
+        }),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

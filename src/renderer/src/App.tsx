@@ -650,7 +650,7 @@ function App(): React.JSX.Element {
             {tabs.length} tab{tabs.length === 1 ? '' : 's'}
           </span>
         </div>
-        <div className="tab-strip-shell">
+        <div className="tab-strip-shell" onWheel={handleTabStripWheel}>
           <Reorder.Group
             as="div"
             aria-label="Terminal tabs"
@@ -658,7 +658,6 @@ function App(): React.JSX.Element {
             className="tab-strip"
             layoutScroll
             onReorder={handleTabsReorder}
-            onWheel={handleTabStripWheel}
             ref={tabStripRef}
             role="tablist"
             values={tabs}
@@ -678,6 +677,7 @@ function App(): React.JSX.Element {
               )
             })}
           </Reorder.Group>
+          <div aria-hidden="true" className="tab-strip-fill" />
         </div>
         <div aria-hidden="true" className="window-drag-spacer" />
         <button
