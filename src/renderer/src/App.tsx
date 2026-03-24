@@ -22,6 +22,8 @@ function App(): React.JSX.Element {
     const terminal = new Terminal({
       allowTransparency: true,
       cursorBlink: true,
+      cursorStyle: 'bar',
+      cursorWidth: 2,
       fontFamily: '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
       fontSize: 14,
       lineHeight: 1.35,
@@ -55,7 +57,6 @@ function App(): React.JSX.Element {
 
     terminal.loadAddon(fitAddon)
     terminal.open(hostElement)
-    terminal.write('Launching shell...\r\n')
     terminal.focus()
 
     const disposeData = window.api.terminal.onData((event) => {
