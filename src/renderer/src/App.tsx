@@ -61,6 +61,66 @@ const terminalOptions = {
   }
 } satisfies ConstructorParameters<typeof Terminal>[0]
 
+function usesWindowsShellQuoting(): boolean {
+  return typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')
+}
+
+function shouldHandleFileDrop(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) {
+    return false
+  }
+
+  const transferTypes = Array.from(dataTransfer.types)
+  return transferTypes.includes('Files') || transferTypes.includes('text/uri-list')
+}
+
+function parseDroppedFileUrl(value: string): string | null {
+  if (!value.startsWith('file://')) {
+    return null
+  }
+
+  try {
+    const parsedUrl = new URL(value)
+
+    if (parsedUrl.protocol !== 'file:') {
+      return null
+    }
+
+    let path = decodeURIComponent(parsedUrl.pathname)
+
+    if (/^\/[A-Za-z]:/.test(path)) {
+      path = path.slice(1)
+    }
+
+    return path || null
+  } catch {
+    return null
+  }
+}
+
+function getPathsFromUriList(dataTransfer: DataTransfer): string[] {
+  const uriList = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain')
+
+  if (!uriList) {
+    return []
+  }
+
+  return uriList
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter((value) => value !== '' && !value.startsWith('#'))
+    .map((value) => parseDroppedFileUrl(value))
+    .filter((value): value is string => Boolean(value))
+}
+
+function quotePathForShell(path: string): string {
+  if (usesWindowsShellQuoting()) {
+    return /[\s&()[\]{}^=;!'+,`~]/.test(path) ? `"${path}"` : path
+  }
+
+  return path.replace(/([^A-Za-z0-9_./-])/g, '\\$1')
+}
+
 function getTabStatusLabel(tab: TabRecord): string {
   if (tab.status === 'connecting') {
     return 'Starting'
@@ -641,6 +701,102 @@ function App(): React.JSX.Element {
     tabStrip.scrollBy({ left: dominantDelta })
   }, [])
 
+  const writeDroppedPathsToActiveTerminal = useCallback((paths: string[]): void => {
+    if (paths.length === 0) {
+      return
+    }
+
+    const activeTabId = activeTabIdRef.current
+
+    if (!activeTabId) {
+      return
+    }
+
+    const runtime = runtimesRef.current.get(activeTabId)
+
+    if (!runtime || runtime.closed || runtime.disposed || runtime.terminalId === null) {
+      return
+    }
+
+    const escapedPaths = paths.map((path) => quotePathForShell(path))
+    window.api.terminal.write(runtime.terminalId, `${escapedPaths.join(' ')} `)
+    runtime.terminal.focus()
+  }, [])
+
+  const handleWorkspaceDragOver = useCallback((event: React.DragEvent<HTMLElement>): void => {
+    if (!shouldHandleFileDrop(event.dataTransfer)) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const handleWorkspaceDrop = useCallback(
+    (event: React.DragEvent<HTMLElement>): void => {
+      if (!shouldHandleFileDrop(event.dataTransfer)) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const droppedFiles = new Set<File>()
+
+      for (const file of Array.from(event.dataTransfer.files)) {
+        droppedFiles.add(file)
+      }
+
+      for (const item of Array.from(event.dataTransfer.items)) {
+        if (item.kind !== 'file') {
+          continue
+        }
+
+        const file = item.getAsFile()
+
+        if (file) {
+          droppedFiles.add(file)
+        }
+      }
+
+      const droppedPaths = new Set<string>()
+
+      for (const file of droppedFiles) {
+        const path = window.api.webUtils.getPathForFile(file)
+
+        if (path) {
+          droppedPaths.add(path)
+        }
+      }
+
+      for (const path of getPathsFromUriList(event.dataTransfer)) {
+        droppedPaths.add(path)
+      }
+
+      writeDroppedPathsToActiveTerminal(Array.from(droppedPaths))
+    },
+    [writeDroppedPathsToActiveTerminal]
+  )
+
+  useEffect(() => {
+    const preventWindowFileDrop = (event: DragEvent): void => {
+      if (!shouldHandleFileDrop(event.dataTransfer)) {
+        return
+      }
+
+      event.preventDefault()
+    }
+
+    window.addEventListener('dragover', preventWindowFileDrop, { capture: true })
+    window.addEventListener('drop', preventWindowFileDrop, { capture: true })
+
+    return () => {
+      window.removeEventListener('dragover', preventWindowFileDrop, { capture: true })
+      window.removeEventListener('drop', preventWindowFileDrop, { capture: true })
+    }
+  }, [])
+
   return (
     <main className={`app-shell ${platformClassName}`}>
       <header className="window-titlebar">
@@ -690,7 +846,12 @@ function App(): React.JSX.Element {
           +
         </button>
       </header>
-      <section className="terminal-workspace" ref={workspaceRef}>
+      <section
+        className="terminal-workspace"
+        onDragOver={handleWorkspaceDragOver}
+        onDrop={handleWorkspaceDrop}
+        ref={workspaceRef}
+      >
         {tabs.map((tab) => (
           <div
             aria-hidden={tab.id !== activeTabId}

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   TerminalApi,
@@ -49,7 +49,12 @@ const terminal: TerminalApi = {
   }
 }
 
-const api = { terminal }
+const api = {
+  terminal,
+  webUtils: {
+    getPathForFile: (file: File): string => webUtils.getPathForFile(file)
+  }
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
