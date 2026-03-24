@@ -81,6 +81,7 @@ function App(): React.JSX.Element {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const nextTabIdRef = useRef(1)
   const workspaceRef = useRef<HTMLDivElement>(null)
+  const tabStripRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<TabRecord[]>([])
   const activeTabIdRef = useRef<string | null>(null)
   const hostElementsRef = useRef(new Map<string, HTMLDivElement>())
@@ -133,6 +134,29 @@ function App(): React.JSX.Element {
       if (shouldFocus) {
         runtime.terminal.focus()
       }
+    })
+  }, [])
+
+  const syncTabStripPosition = useCallback((tabId: string | null): void => {
+    if (!tabId) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      const tabStrip = tabStripRef.current
+
+      if (!tabStrip) {
+        return
+      }
+
+      const activeTabButton = tabStrip.querySelector<HTMLButtonElement>(
+        `[aria-controls="panel-${tabId}"]`
+      )
+
+      activeTabButton?.scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest'
+      })
     })
   }, [])
 
@@ -502,7 +526,8 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     syncActiveTabLayout(activeTabId, true)
-  }, [activeTabId, syncActiveTabLayout, tabs.length])
+    syncTabStripPosition(activeTabId)
+  }, [activeTabId, syncActiveTabLayout, syncTabStripPosition, tabs.length])
 
   useEffect(() => {
     const hostElements = hostElementsRef.current
@@ -519,6 +544,24 @@ function App(): React.JSX.Element {
     }
   }, [disposeTabRuntime])
 
+  const handleTabStripWheel = useCallback((event: React.WheelEvent<HTMLDivElement>): void => {
+    const tabStrip = tabStripRef.current
+
+    if (!tabStrip || tabStrip.scrollWidth <= tabStrip.clientWidth) {
+      return
+    }
+
+    const dominantDelta =
+      Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+
+    if (dominantDelta === 0) {
+      return
+    }
+
+    event.preventDefault()
+    tabStrip.scrollBy({ left: dominantDelta })
+  }, [])
+
   return (
     <main className={`app-shell ${platformClassName}`}>
       <header className="window-titlebar">
@@ -529,7 +572,13 @@ function App(): React.JSX.Element {
           </span>
         </div>
         <div className="tab-strip-shell">
-          <div aria-label="Terminal tabs" className="tab-strip" role="tablist">
+          <div
+            aria-label="Terminal tabs"
+            className="tab-strip"
+            onWheel={handleTabStripWheel}
+            ref={tabStripRef}
+            role="tablist"
+          >
             {tabs.map((tab, index) => {
               const isActive = tab.id === activeTabId
               const tabStatusLabel = getTabStatusLabel(tab)
