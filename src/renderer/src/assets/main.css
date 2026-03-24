@@ -60,6 +60,7 @@ body {
   align-items: center;
   min-width: 0;
   overflow: hidden;
+  -webkit-app-region: drag;
 }
 
 .tab-strip {
@@ -73,8 +74,8 @@ body {
   padding: 6px 0;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
-  -webkit-app-region: no-drag;
   -webkit-overflow-scrolling: touch;
+  pointer-events: none;
 }
 
 .window-drag-spacer {
@@ -93,6 +94,8 @@ body {
   display: flex;
   flex: 0 0 auto;
   touch-action: pan-y;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
 }
 
 .tab-button,
