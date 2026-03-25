@@ -2006,6 +2006,26 @@ function TerminalApp(): React.JSX.Element {
     [createTab]
   )
 
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const activeLocalTabCwd =
+    activeTab?.restoreState.kind === 'local' ? activeTab.restoreState.cwd ?? null : null
+  const openCurrentFolderTitle =
+    activeTab?.restoreState.kind === 'ssh'
+      ? 'Open current folder is only available for local tabs'
+      : activeLocalTabCwd
+        ? `Open ${activeLocalTabCwd}`
+        : 'Current folder is not available yet'
+
+  const handleOpenCurrentFolder = useCallback((): void => {
+    if (!activeLocalTabCwd) {
+      return
+    }
+
+    void window.api.shell.openPath(activeLocalTabCwd).catch((error) => {
+      console.error(`Unable to open folder "${activeLocalTabCwd}".`, error)
+    })
+  }, [activeLocalTabCwd])
+
   useEffect(() => {
     let didCancel = false
 
@@ -2124,6 +2144,16 @@ function TerminalApp(): React.JSX.Element {
             type="button"
           >
             <Plus aria-hidden="true" className="tab-action-icon" />
+          </button>
+          <button
+            aria-label="Open current folder"
+            className="tab-action"
+            disabled={!activeLocalTabCwd}
+            onClick={handleOpenCurrentFolder}
+            title={openCurrentFolderTitle}
+            type="button"
+          >
+            <FolderOpen aria-hidden="true" className="tab-action-icon" />
           </button>
           <div className="tab-action-menu-shell" ref={sshMenuRef}>
             <button

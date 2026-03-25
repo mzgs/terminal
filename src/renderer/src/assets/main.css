@@ -288,10 +288,16 @@ body {
 }
 
 .tab-button:hover,
-.tab-action:hover,
+.tab-action:hover:not(:disabled),
 .tab-close:hover {
   border-color: rgba(255, 255, 255, 0.14);
   background-color: rgba(255, 255, 255, 0.08);
+}
+
+.tab-action:disabled {
+  cursor: not-allowed;
+  color: rgba(214, 223, 236, 0.42);
+  opacity: 0.56;
 }
 
 .tab-item.is-active .tab-close {

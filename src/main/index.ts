@@ -841,6 +841,20 @@ function connectToSshServer(webContents: WebContents, configId: string): Termina
   return createTerminal(webContents, buildSshTerminalCreateOptions(config, password))
 }
 
+async function openFolderPath(path: string): Promise<void> {
+  const normalizedPath = path.trim()
+
+  if (normalizedPath === '' || !isDirectory(normalizedPath)) {
+    throw new Error('Folder not found.')
+  }
+
+  const errorMessage = await shell.openPath(normalizedPath)
+
+  if (errorMessage) {
+    throw new Error(errorMessage)
+  }
+}
+
 function loadRendererWindow(window: BrowserWindow): Promise<void> {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     return window.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -984,6 +998,7 @@ app.whenReady().then(() => {
   ipcMain.handle('terminal:create', (event, options?: TerminalCreateOptions) =>
     createTerminal(event.sender, options)
   )
+  ipcMain.handle('shell:open-path', (_event, path: string) => openFolderPath(path))
   ipcMain.handle('session:load', () => listPersistedSession())
   ipcMain.handle('session:save', (_event, snapshot: SessionSnapshot) =>
     saveSessionSnapshot(snapshot)

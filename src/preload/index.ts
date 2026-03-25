@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { SessionApi } from '../shared/session'
+import type { ShellApi } from '../shared/shell'
 import type { SshApi, SshServerConfig } from '../shared/ssh'
 import type {
   TerminalApi,
@@ -68,6 +69,10 @@ const session: SessionApi = {
   save: (snapshot) => ipcRenderer.invoke('session:save', snapshot)
 }
 
+const shell: ShellApi = {
+  openPath: (path) => ipcRenderer.invoke('shell:open-path', path)
+}
+
 const ssh: SshApi = {
   connect: (configId) => ipcRenderer.invoke('ssh:connect', configId),
   deleteConfig: (configId) => ipcRenderer.invoke('ssh:delete-config', configId),
@@ -99,6 +104,7 @@ const ssh: SshApi = {
 
 const api = {
   session,
+  shell,
   ssh,
   terminal,
   webUtils: {
