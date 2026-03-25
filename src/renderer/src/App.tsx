@@ -2314,11 +2314,12 @@ function TerminalApp(): React.JSX.Element {
     activeTab?.restoreState.kind === 'ssh' ? (activeTab.restoreState.cwd ?? null) : null
   const activeSshTabId = activeTab?.restoreState.kind === 'ssh' ? activeTab.id : null
   const activeSshBrowserState = activeTabId ? (sshBrowserStates[activeTabId] ?? null) : null
-  const activeSshBrowserId = activeSshTabId ? `ssh-browser-${activeSshTabId}` : undefined
-  const activeSshBrowserWidth =
-    activeTabId && sshBrowserWidths[activeTabId]
-      ? sshBrowserWidths[activeTabId]
-      : defaultSshBrowserWidth
+  const activeSshBrowserId = activeSshBrowserState
+    ? `ssh-browser-${activeSshBrowserState.tabId}`
+    : undefined
+  const activeSshBrowserWidth = activeTabId
+    ? (sshBrowserWidths[activeTabId] ?? defaultSshBrowserWidth)
+    : defaultSshBrowserWidth
   const mountedSshBrowserTabs = tabs.filter((tab) => sshBrowserStates[tab.id] !== undefined)
   const hasMountedSshBrowsers = mountedSshBrowserTabs.length > 0
   const sshBrowserWorkspaceStyle = activeSshBrowserState
@@ -2334,11 +2335,7 @@ function TerminalApp(): React.JSX.Element {
 
   const handleOpenCurrentFolder = useCallback((): void => {
     if (activeSshConfigId && activeSshTabId) {
-      if (
-        activeSshBrowserState &&
-        activeSshBrowserState.tabId === activeSshTabId &&
-        activeSshBrowserState.configId === activeSshConfigId
-      ) {
+      if (activeSshBrowserState) {
         closeSshBrowserForTab(activeSshTabId)
         return
       }
@@ -2839,10 +2836,7 @@ function TerminalApp(): React.JSX.Element {
           />
         ) : null}
         {hasMountedSshBrowsers ? (
-          <div
-            aria-hidden={!activeSshBrowserState}
-            className={`ssh-browser-dock${activeSshBrowserState ? ' is-visible' : ''}`}
-          >
+          <div aria-hidden={!activeSshBrowserState} className="ssh-browser-dock">
             {mountedSshBrowserTabs.map((tab) => {
               const browserState = sshBrowserStates[tab.id]
 

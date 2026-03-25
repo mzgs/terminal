@@ -686,15 +686,12 @@ body {
   pointer-events: none;
 }
 
-.ssh-browser-dock.is-visible {
-  visibility: visible;
-  pointer-events: auto;
-}
-
 .terminal-workspace.has-browser .ssh-browser-dock {
   position: relative;
   inset: auto;
   grid-column: 3;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .ssh-browser {
