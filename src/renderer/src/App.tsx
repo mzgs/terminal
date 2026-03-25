@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type IBufferCell, type ITheme } from '@xterm/xterm'
 import {
@@ -17,7 +17,12 @@ import { Reorder, useDragControls } from 'motion/react'
 import Modal from 'react-modal'
 import '@xterm/xterm/css/xterm.css'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
-import type { SshAuthMethod, SshServerConfig, SshServerConfigInput } from '../../shared/ssh'
+import type {
+  SshAuthMethod,
+  SshRemoteDirectoryEntry,
+  SshServerConfig,
+  SshServerConfigInput
+} from '../../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../../shared/terminal'
 
 type TabStatus = 'connecting' | 'ready' | 'closed'
@@ -60,8 +65,32 @@ interface SearchableLine {
   widths: number[]
 }
 
+interface SshBrowserState {
+  configId: string
+  entries: SshRemoteDirectoryEntry[]
+  errorMessage: string | null
+  isLoading: boolean
+  path: string | null
+  requestId: number
+  tabId: string
+}
+
+type SshBrowserStates = Record<string, SshBrowserState>
+type SshBrowserWidths = Record<string, number>
+
 const defaultTabTitle = '~'
 const searchRefreshDebounceMs = 120
+const defaultSshBrowserWidth = 320
+const maxSshBrowserWidth = 640
+const minSshBrowserWidth = 240
+const minTerminalStageWidth = 320
+const sshBrowserOverlayBreakpointPx = 900
+const sshBrowserResizerWidth = 10
+const sshRemoteCwdSequencePrefix = '\x1b]633;TerminalRemoteCwd='
+const sshRemoteCwdPattern = new RegExp(
+  String.raw`\x1b]633;TerminalRemoteCwd=([^\x07\x1b]*)(?:\x07|\x1b\\)`,
+  'g'
+)
 const defaultTerminalTheme = {
   background: '#000000',
   black: '#000000',
@@ -120,6 +149,7 @@ const defaultSshConfigInput: SshServerConfigInput = {
 function cloneRestorableTabState(restoreState: RestorableTabState): RestorableTabState {
   if (restoreState.kind === 'ssh') {
     return {
+      ...(restoreState.cwd ? { cwd: restoreState.cwd } : {}),
       configId: restoreState.configId,
       kind: 'ssh'
     }
@@ -164,10 +194,10 @@ function createSessionSnapshot(tabs: TabRecord[], activeTabId: string | null): S
 
 function buildCreateTabOptionsFromSessionTab(tab: SessionTabSnapshot): CreateTabOptions {
   if (tab.restoreState.kind === 'ssh') {
-    const { configId } = tab.restoreState
+    const { configId, cwd } = tab.restoreState
 
     return {
-      createTerminal: () => window.api.ssh.connect(configId),
+      createTerminal: () => window.api.ssh.connect(configId, cwd),
       restoreState: cloneRestorableTabState(tab.restoreState)
     }
   }
@@ -270,6 +300,73 @@ function quoteArgumentForShell(value: string): string {
 
 function quotePathForShell(path: string): string {
   return quoteArgumentForShell(path)
+}
+
+function stripSshRemoteCwdSequences(
+  data: string,
+  carryover: string
+): { carryover: string; cleanedData: string; cwd: string | null } {
+  const combinedData = carryover + data
+  let nextCarryover = ''
+  const lastPrefixIndex = combinedData.lastIndexOf(sshRemoteCwdSequencePrefix)
+
+  if (lastPrefixIndex >= 0) {
+    const suffix = combinedData.slice(lastPrefixIndex)
+
+    if (!suffix.includes('\x07') && !suffix.includes('\x1b\\')) {
+      nextCarryover = suffix
+    }
+  }
+
+  const processableData = nextCarryover
+    ? combinedData.slice(0, combinedData.length - nextCarryover.length)
+    : combinedData
+  let cwd: string | null = null
+
+  const cleanedData = processableData.replace(sshRemoteCwdPattern, (_match, nextCwd: string) => {
+    const normalizedCwd = nextCwd.trim()
+
+    if (normalizedCwd !== '') {
+      cwd = normalizedCwd
+    }
+
+    return ''
+  })
+
+  return { carryover: nextCarryover, cleanedData, cwd }
+}
+
+function joinRemoteDirectoryPath(basePath: string, name: string): string {
+  return basePath === '/' ? `/${name}` : `${basePath.replace(/\/+$/, '')}/${name}`
+}
+
+function getRemoteDirectoryParentPath(path: string): string | null {
+  if (path === '/') {
+    return null
+  }
+
+  const normalizedPath = path.replace(/\/+$/, '')
+
+  if (normalizedPath === '') {
+    return '/'
+  }
+
+  const lastSlashIndex = normalizedPath.lastIndexOf('/')
+
+  if (lastSlashIndex <= 0) {
+    return '/'
+  }
+
+  return normalizedPath.slice(0, lastSlashIndex)
+}
+
+function clampSshBrowserWidth(desiredWidth: number, workspaceWidth: number): number {
+  const maxWidth = Math.min(
+    maxSshBrowserWidth,
+    Math.max(minSshBrowserWidth, workspaceWidth - minTerminalStageWidth - sshBrowserResizerWidth)
+  )
+
+  return Math.min(Math.max(Math.round(desiredWidth), minSshBrowserWidth), maxWidth)
 }
 
 function getTabStatusLabel(tab: TabRecord): string {
@@ -954,11 +1051,15 @@ function TerminalApp(): React.JSX.Element {
   const [searchResultCount, setSearchResultCount] = useState(0)
   const [searchResultIndex, setSearchResultIndex] = useState(-1)
   const [isSshMenuOpen, setIsSshMenuOpen] = useState(false)
+  const [isSshBrowserResizing, setIsSshBrowserResizing] = useState(false)
+  const [sshBrowserStates, setSshBrowserStates] = useState<SshBrowserStates>({})
+  const [sshBrowserWidths, setSshBrowserWidths] = useState<SshBrowserWidths>({})
   const [isSshConfigDialogOpen, setIsSshConfigDialogOpen] = useState(false)
   const [sshServerBeingEdited, setSshServerBeingEdited] = useState<SshServerConfig | null>(null)
   const [sshServers, setSshServers] = useState<SshServerConfig[]>([])
   const nextTabIdRef = useRef(1)
   const workspaceRef = useRef<HTMLDivElement>(null)
+  const workspaceShellRef = useRef<HTMLElement>(null)
   const tabStripRef = useRef<HTMLDivElement>(null)
   const sshMenuRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<TabRecord[]>([])
@@ -971,6 +1072,10 @@ function TerminalApp(): React.JSX.Element {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchResultIndexRef = useRef(-1)
   const searchQueryRef = useRef('')
+  const sshBrowserResizePointerIdRef = useRef<number | null>(null)
+  const sshBrowserResizeTabIdRef = useRef<string | null>(null)
+  const sshBrowserRequestIdRef = useRef(0)
+  const sshCwdSequenceBuffersRef = useRef(new Map<number, string>())
   const terminalToTabRef = useRef(new Map<number, string>())
   const pendingTitlesRef = useRef(new Map<number, string>())
   const pendingInitialTabStateRef = useRef(new Map<string, CreateTabOptions>())
@@ -994,6 +1099,144 @@ function TerminalApp(): React.JSX.Element {
       })
     )
   }, [])
+
+  const closeSshBrowserForTab = useCallback((tabId: string | null): void => {
+    if (!tabId) {
+      return
+    }
+
+    setSshBrowserStates((currentStates) => {
+      if (!(tabId in currentStates)) {
+        return currentStates
+      }
+
+      const nextStates = { ...currentStates }
+      delete nextStates[tabId]
+      return nextStates
+    })
+  }, [])
+
+  const removeSshBrowserWidthForTab = useCallback((tabId: string | null): void => {
+    if (!tabId) {
+      return
+    }
+
+    setSshBrowserWidths((currentWidths) => {
+      if (!(tabId in currentWidths)) {
+        return currentWidths
+      }
+
+      const nextWidths = { ...currentWidths }
+      delete nextWidths[tabId]
+      return nextWidths
+    })
+  }, [])
+
+  const setSshBrowserWidthForTab = useCallback((tabId: string, width: number): void => {
+    setSshBrowserWidths((currentWidths) => {
+      if (currentWidths[tabId] === width) {
+        return currentWidths
+      }
+
+      return {
+        ...currentWidths,
+        [tabId]: width
+      }
+    })
+  }, [])
+
+  const loadSshDirectory = useCallback(
+    (configId: string, path: string | undefined, tabId: string): void => {
+      const requestId = sshBrowserRequestIdRef.current + 1
+      sshBrowserRequestIdRef.current = requestId
+
+      setSshBrowserStates((currentStates) => {
+        const currentState = currentStates[tabId]
+
+        return {
+          ...currentStates,
+          [tabId]: {
+            configId,
+            entries: currentState && currentState.configId === configId ? currentState.entries : [],
+            errorMessage: null,
+            isLoading: true,
+            path:
+              currentState && currentState.configId === configId
+                ? currentState.path
+                : (path ?? null),
+            requestId,
+            tabId
+          }
+        }
+      })
+
+      void window.api.ssh
+        .listDirectory(configId, path)
+        .then((listing) => {
+          setSshBrowserStates((currentStates) => {
+            const currentState = currentStates[tabId]
+
+            if (
+              !currentState ||
+              currentState.configId !== configId ||
+              currentState.requestId !== requestId
+            ) {
+              return currentStates
+            }
+
+            return {
+              ...currentStates,
+              [tabId]: {
+                ...currentState,
+                entries: listing.entries,
+                errorMessage: null,
+                isLoading: false,
+                path: listing.path
+              }
+            }
+          })
+
+          updateTab(tabId, (tab) => {
+            if (tab.restoreState.kind !== 'ssh' || tab.restoreState.cwd === listing.path) {
+              return tab
+            }
+
+            return {
+              ...tab,
+              restoreState: {
+                ...tab.restoreState,
+                cwd: listing.path
+              }
+            }
+          })
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+
+          setSshBrowserStates((currentStates) => {
+            const currentState = currentStates[tabId]
+
+            if (
+              !currentState ||
+              currentState.configId !== configId ||
+              currentState.requestId !== requestId
+            ) {
+              return currentStates
+            }
+
+            return {
+              ...currentStates,
+              [tabId]: {
+                ...currentState,
+                errorMessage: message || 'Unable to load this remote directory.',
+                isLoading: false
+              }
+            }
+          })
+        })
+    },
+    [updateTab]
+  )
 
   const resetSearchResults = useCallback((): void => {
     setSearchResultCount(0)
@@ -1270,6 +1513,7 @@ function TerminalApp(): React.JSX.Element {
     if (runtime.terminalId !== null) {
       terminalToTabRef.current.delete(runtime.terminalId)
       pendingTitlesRef.current.delete(runtime.terminalId)
+      sshCwdSequenceBuffersRef.current.delete(runtime.terminalId)
 
       if (shouldKill && !runtime.closed) {
         window.api.terminal.kill(runtime.terminalId)
@@ -1331,6 +1575,8 @@ function TerminalApp(): React.JSX.Element {
         pendingActivationTabIdRef.current = null
       }
 
+      closeSshBrowserForTab(tabId)
+      removeSshBrowserWidthForTab(tabId)
       pendingInitialTabStateRef.current.delete(tabId)
       const remainingTabs = currentTabs.filter((tab) => tab.id !== tabId)
 
@@ -1346,7 +1592,7 @@ function TerminalApp(): React.JSX.Element {
         return remainingTabs[tabIndex]?.id ?? remainingTabs[tabIndex - 1]?.id ?? null
       })
     },
-    [disposeTabRuntime]
+    [closeSshBrowserForTab, disposeTabRuntime, removeSshBrowserWidthForTab]
   )
 
   const selectAdjacentTab = useCallback((direction: -1 | 1): void => {
@@ -1637,7 +1883,37 @@ function TerminalApp(): React.JSX.Element {
         return
       }
 
-      runtime.terminal.write(event.data)
+      const sequenceCarryover = sshCwdSequenceBuffersRef.current.get(event.terminalId) ?? ''
+      const { carryover, cleanedData, cwd } = stripSshRemoteCwdSequences(
+        event.data,
+        sequenceCarryover
+      )
+
+      if (carryover !== '') {
+        sshCwdSequenceBuffersRef.current.set(event.terminalId, carryover)
+      } else {
+        sshCwdSequenceBuffersRef.current.delete(event.terminalId)
+      }
+
+      if (cleanedData !== '') {
+        runtime.terminal.write(cleanedData)
+      }
+
+      if (cwd) {
+        updateTab(tabId, (tab) => {
+          if (tab.restoreState.kind !== 'ssh' || tab.restoreState.cwd === cwd) {
+            return tab
+          }
+
+          return {
+            ...tab,
+            restoreState: {
+              ...tab.restoreState,
+              cwd
+            }
+          }
+        })
+      }
 
       if (
         isSearchOpenRef.current &&
@@ -1659,6 +1935,7 @@ function TerminalApp(): React.JSX.Element {
 
       terminalToTabRef.current.delete(event.terminalId)
       pendingTitlesRef.current.delete(event.terminalId)
+      sshCwdSequenceBuffersRef.current.delete(event.terminalId)
 
       if (!runtime || runtime.disposed) {
         return
@@ -1829,6 +2106,28 @@ function TerminalApp(): React.JSX.Element {
     syncActiveTabLayout(activeTabId, true)
     syncTabStripPosition(activeTabId)
   }, [activeTabId, syncActiveTabLayout, syncTabStripPosition, tabs.length])
+
+  useEffect(() => {
+    const activeSshBrowserState = activeTabId ? (sshBrowserStates[activeTabId] ?? null) : null
+
+    if (!activeSshBrowserState) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      closeSshBrowserForTab(activeSshBrowserState.tabId)
+    }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
+    }
+  }, [activeTabId, closeSshBrowserForTab, sshBrowserStates])
 
   useEffect(() => {
     if (!isSshMenuOpen) {
@@ -2008,15 +2307,47 @@ function TerminalApp(): React.JSX.Element {
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
   const activeLocalTabCwd =
-    activeTab?.restoreState.kind === 'local' ? activeTab.restoreState.cwd ?? null : null
-  const openCurrentFolderTitle =
-    activeTab?.restoreState.kind === 'ssh'
-      ? 'Open current folder is only available for local tabs'
-      : activeLocalTabCwd
-        ? `Open ${activeLocalTabCwd}`
-        : 'Current folder is not available yet'
+    activeTab?.restoreState.kind === 'local' ? (activeTab.restoreState.cwd ?? null) : null
+  const activeSshConfigId =
+    activeTab?.restoreState.kind === 'ssh' ? activeTab.restoreState.configId : null
+  const activeSshCwd =
+    activeTab?.restoreState.kind === 'ssh' ? (activeTab.restoreState.cwd ?? null) : null
+  const activeSshTabId = activeTab?.restoreState.kind === 'ssh' ? activeTab.id : null
+  const activeSshBrowserState = activeTabId ? (sshBrowserStates[activeTabId] ?? null) : null
+  const activeSshBrowserId = activeSshTabId ? `ssh-browser-${activeSshTabId}` : undefined
+  const activeSshBrowserWidth =
+    activeTabId && sshBrowserWidths[activeTabId]
+      ? sshBrowserWidths[activeTabId]
+      : defaultSshBrowserWidth
+  const mountedSshBrowserTabs = tabs.filter((tab) => sshBrowserStates[tab.id] !== undefined)
+  const hasMountedSshBrowsers = mountedSshBrowserTabs.length > 0
+  const sshBrowserWorkspaceStyle = activeSshBrowserState
+    ? ({ '--ssh-browser-width': `${activeSshBrowserWidth}px` } as CSSProperties)
+    : undefined
+  const openCurrentFolderTitle = activeSshConfigId
+    ? activeSshCwd
+      ? `Browse ${activeSshCwd}`
+      : 'Browse remote files'
+    : activeLocalTabCwd
+      ? `Open ${activeLocalTabCwd}`
+      : 'Current folder is not available yet'
 
   const handleOpenCurrentFolder = useCallback((): void => {
+    if (activeSshConfigId && activeSshTabId) {
+      if (
+        activeSshBrowserState &&
+        activeSshBrowserState.tabId === activeSshTabId &&
+        activeSshBrowserState.configId === activeSshConfigId
+      ) {
+        closeSshBrowserForTab(activeSshTabId)
+        return
+      }
+
+      setIsSshMenuOpen(false)
+      loadSshDirectory(activeSshConfigId, activeSshCwd ?? undefined, activeSshTabId)
+      return
+    }
+
     if (!activeLocalTabCwd) {
       return
     }
@@ -2024,7 +2355,186 @@ function TerminalApp(): React.JSX.Element {
     void window.api.shell.openPath(activeLocalTabCwd).catch((error) => {
       console.error(`Unable to open folder "${activeLocalTabCwd}".`, error)
     })
-  }, [activeLocalTabCwd])
+  }, [
+    activeLocalTabCwd,
+    activeSshConfigId,
+    activeSshCwd,
+    activeSshTabId,
+    activeSshBrowserState,
+    closeSshBrowserForTab,
+    loadSshDirectory
+  ])
+
+  const handleOpenSshBrowserDirectory = useCallback(
+    (browserState: SshBrowserState, entry: SshRemoteDirectoryEntry): void => {
+      if (!browserState.path || !entry.isDirectory) {
+        return
+      }
+
+      loadSshDirectory(
+        browserState.configId,
+        joinRemoteDirectoryPath(browserState.path, entry.name),
+        browserState.tabId
+      )
+    },
+    [loadSshDirectory]
+  )
+
+  const handleOpenSshBrowserParent = useCallback(
+    (browserState: SshBrowserState): void => {
+      if (!browserState.path) {
+        return
+      }
+
+      const parentPath = getRemoteDirectoryParentPath(browserState.path)
+
+      if (!parentPath) {
+        return
+      }
+
+      loadSshDirectory(browserState.configId, parentPath, browserState.tabId)
+    },
+    [loadSshDirectory]
+  )
+
+  const handleRefreshSshBrowser = useCallback(
+    (browserState: SshBrowserState): void => {
+      loadSshDirectory(browserState.configId, browserState.path ?? undefined, browserState.tabId)
+    },
+    [loadSshDirectory]
+  )
+
+  const handleSshBrowserResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (
+        !activeSshBrowserState ||
+        event.button !== 0 ||
+        window.innerWidth <= sshBrowserOverlayBreakpointPx
+      ) {
+        return
+      }
+
+      const workspaceShellElement = workspaceShellRef.current
+
+      if (!workspaceShellElement) {
+        return
+      }
+
+      const workspaceRect = workspaceShellElement.getBoundingClientRect()
+
+      sshBrowserResizePointerIdRef.current = event.pointerId
+      sshBrowserResizeTabIdRef.current = activeSshBrowserState.tabId
+      setIsSshBrowserResizing(true)
+      setSshBrowserWidthForTab(
+        activeSshBrowserState.tabId,
+        clampSshBrowserWidth(workspaceRect.right - event.clientX, workspaceRect.width)
+      )
+      event.preventDefault()
+    },
+    [activeSshBrowserState, setSshBrowserWidthForTab]
+  )
+
+  const handleSshBrowserResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (!activeSshBrowserState) {
+        return
+      }
+
+      const workspaceShellElement = workspaceShellRef.current
+
+      if (!workspaceShellElement) {
+        return
+      }
+
+      const workspaceWidth = workspaceShellElement.clientWidth
+      let nextWidth: number | null = null
+
+      if (event.key === 'ArrowLeft') {
+        nextWidth = activeSshBrowserWidth + 24
+      } else if (event.key === 'ArrowRight') {
+        nextWidth = activeSshBrowserWidth - 24
+      } else if (event.key === 'Home') {
+        nextWidth = minSshBrowserWidth
+      } else if (event.key === 'End') {
+        nextWidth = maxSshBrowserWidth
+      }
+
+      if (nextWidth === null) {
+        return
+      }
+
+      event.preventDefault()
+      setSshBrowserWidthForTab(
+        activeSshBrowserState.tabId,
+        clampSshBrowserWidth(nextWidth, workspaceWidth)
+      )
+    },
+    [activeSshBrowserState, activeSshBrowserWidth, setSshBrowserWidthForTab]
+  )
+
+  useEffect(() => {
+    if (!isSshBrowserResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      if (sshBrowserResizePointerIdRef.current !== event.pointerId) {
+        return
+      }
+
+      const workspaceShellElement = workspaceShellRef.current
+
+      if (!workspaceShellElement) {
+        return
+      }
+
+      const workspaceRect = workspaceShellElement.getBoundingClientRect()
+      const resizeTabId = sshBrowserResizeTabIdRef.current
+
+      if (!resizeTabId) {
+        return
+      }
+
+      setSshBrowserWidthForTab(
+        resizeTabId,
+        clampSshBrowserWidth(workspaceRect.right - event.clientX, workspaceRect.width)
+      )
+    }
+
+    const stopResizing = (event: PointerEvent): void => {
+      if (sshBrowserResizePointerIdRef.current !== event.pointerId) {
+        return
+      }
+
+      sshBrowserResizePointerIdRef.current = null
+      sshBrowserResizeTabIdRef.current = null
+      setIsSshBrowserResizing(false)
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+
+    return () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+    }
+  }, [isSshBrowserResizing, setSshBrowserWidthForTab])
+
+  useEffect(() => {
+    if (activeSshBrowserState || !isSshBrowserResizing) {
+      return
+    }
+
+    sshBrowserResizePointerIdRef.current = null
+    sshBrowserResizeTabIdRef.current = null
+    setIsSshBrowserResizing(false)
+  }, [activeSshBrowserState, isSshBrowserResizing])
 
   useEffect(() => {
     let didCancel = false
@@ -2146,9 +2656,12 @@ function TerminalApp(): React.JSX.Element {
             <Plus aria-hidden="true" className="tab-action-icon" />
           </button>
           <button
+            aria-controls={activeSshConfigId ? activeSshBrowserId : undefined}
+            aria-expanded={activeSshConfigId ? Boolean(activeSshBrowserState) : undefined}
+            aria-haspopup={activeSshConfigId ? 'dialog' : undefined}
             aria-label="Open current folder"
-            className="tab-action"
-            disabled={!activeLocalTabCwd}
+            className={`tab-action${activeSshBrowserState ? ' is-open' : ''}`}
+            disabled={!activeLocalTabCwd && !activeSshConfigId}
             onClick={handleOpenCurrentFolder}
             title={openCurrentFolderTitle}
             type="button"
@@ -2215,98 +2728,214 @@ function TerminalApp(): React.JSX.Element {
         </div>
       </header>
       <section
-        className="terminal-workspace"
+        className={`terminal-workspace${activeSshBrowserState ? ' has-browser' : ''}${isSshBrowserResizing ? ' is-resizing' : ''}`}
         onDragOver={handleWorkspaceDragOver}
         onDrop={handleWorkspaceDrop}
-        ref={workspaceRef}
+        ref={workspaceShellRef}
+        style={sshBrowserWorkspaceStyle}
       >
-        {isSearchOpen ? (
-          <div className="terminal-search" role="search">
-            <label className="terminal-search-field">
-              <Search aria-hidden="true" className="terminal-search-icon" />
-              <input
-                aria-label="Search current terminal"
-                className="terminal-search-input"
-                onChange={handleSearchQueryChange}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    closeSearch()
-                    return
-                  }
-
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-
-                    if (event.shiftKey) {
-                      findPreviousMatch()
+        <div className="terminal-stage" ref={workspaceRef}>
+          {isSearchOpen ? (
+            <div className="terminal-search" role="search">
+              <label className="terminal-search-field">
+                <Search aria-hidden="true" className="terminal-search-icon" />
+                <input
+                  aria-label="Search current terminal"
+                  className="terminal-search-input"
+                  onChange={handleSearchQueryChange}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      closeSearch()
                       return
                     }
 
-                    findNextMatch()
-                  }
-                }}
-                placeholder="Find in terminal"
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-              />
-            </label>
-            <span
-              aria-live="polite"
-              className={`terminal-search-status${searchQuery !== '' && searchResultCount === 0 ? ' is-empty' : ''}`}
-            >
-              {searchStatusText}
-            </span>
-            <button
-              aria-label="Previous match"
-              className="terminal-search-button"
-              disabled={searchQuery === ''}
-              onClick={findPreviousMatch}
-              title="Previous match"
-              type="button"
-            >
-              <ChevronUp aria-hidden="true" className="terminal-search-button-icon" />
-            </button>
-            <button
-              aria-label="Next match"
-              className="terminal-search-button"
-              disabled={searchQuery === ''}
-              onClick={findNextMatch}
-              title="Next match"
-              type="button"
-            >
-              <ChevronDown aria-hidden="true" className="terminal-search-button-icon" />
-            </button>
-            <button
-              aria-label="Close search"
-              className="terminal-search-button"
-              onClick={closeSearch}
-              title="Close search"
-              type="button"
-            >
-              <X aria-hidden="true" className="terminal-search-button-icon" />
-            </button>
-          </div>
-        ) : null}
-        {tabs.map((tab) => (
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+
+                      if (event.shiftKey) {
+                        findPreviousMatch()
+                        return
+                      }
+
+                      findNextMatch()
+                    }
+                  }}
+                  placeholder="Find in terminal"
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                />
+              </label>
+              <span
+                aria-live="polite"
+                className={`terminal-search-status${searchQuery !== '' && searchResultCount === 0 ? ' is-empty' : ''}`}
+              >
+                {searchStatusText}
+              </span>
+              <button
+                aria-label="Previous match"
+                className="terminal-search-button"
+                disabled={searchQuery === ''}
+                onClick={findPreviousMatch}
+                title="Previous match"
+                type="button"
+              >
+                <ChevronUp aria-hidden="true" className="terminal-search-button-icon" />
+              </button>
+              <button
+                aria-label="Next match"
+                className="terminal-search-button"
+                disabled={searchQuery === ''}
+                onClick={findNextMatch}
+                title="Next match"
+                type="button"
+              >
+                <ChevronDown aria-hidden="true" className="terminal-search-button-icon" />
+              </button>
+              <button
+                aria-label="Close search"
+                className="terminal-search-button"
+                onClick={closeSearch}
+                title="Close search"
+                type="button"
+              >
+                <X aria-hidden="true" className="terminal-search-button-icon" />
+              </button>
+            </div>
+          ) : null}
+          {tabs.map((tab) => (
+            <div
+              aria-hidden={tab.id !== activeTabId}
+              className={`terminal-screen${tab.id === activeTabId ? ' is-active' : ''}`}
+              id={`panel-${tab.id}`}
+              key={tab.id}
+              ref={(node) => {
+                if (!node) {
+                  hostElementsRef.current.delete(tab.id)
+                  return
+                }
+
+                hostElementsRef.current.set(tab.id, node)
+                initializeTab(tab.id, node)
+              }}
+              role="tabpanel"
+            />
+          ))}
+        </div>
+        {activeSshBrowserState ? (
           <div
-            aria-hidden={tab.id !== activeTabId}
-            className={`terminal-screen${tab.id === activeTabId ? ' is-active' : ''}`}
-            id={`panel-${tab.id}`}
-            key={tab.id}
-            ref={(node) => {
-              if (!node) {
-                hostElementsRef.current.delete(tab.id)
-                return
+            aria-controls={activeSshBrowserId}
+            aria-label="Resize SFTP browser"
+            aria-orientation="vertical"
+            aria-valuemax={maxSshBrowserWidth}
+            aria-valuemin={minSshBrowserWidth}
+            aria-valuenow={activeSshBrowserWidth}
+            className="ssh-browser-resizer"
+            onKeyDown={handleSshBrowserResizeKeyDown}
+            onPointerDown={handleSshBrowserResizePointerDown}
+            role="separator"
+            tabIndex={0}
+          />
+        ) : null}
+        {hasMountedSshBrowsers ? (
+          <div
+            aria-hidden={!activeSshBrowserState}
+            className={`ssh-browser-dock${activeSshBrowserState ? ' is-visible' : ''}`}
+          >
+            {mountedSshBrowserTabs.map((tab) => {
+              const browserState = sshBrowserStates[tab.id]
+
+              if (!browserState) {
+                return null
               }
 
-              hostElementsRef.current.set(tab.id, node)
-              initializeTab(tab.id, node)
-            }}
-            role="tabpanel"
-          />
-        ))}
+              const browserId = `ssh-browser-${tab.id}`
+              const browserParentPath = browserState.path
+                ? getRemoteDirectoryParentPath(browserState.path)
+                : null
+              const isActiveBrowser = browserState.tabId === activeSshBrowserState?.tabId
+
+              return (
+                <aside
+                  aria-hidden={!isActiveBrowser}
+                  className={`ssh-browser${isActiveBrowser ? ' is-active' : ''}`}
+                  id={browserId}
+                  key={tab.id}
+                  role={isActiveBrowser ? 'dialog' : undefined}
+                >
+                  <div className="ssh-browser-header">
+                    <div className="ssh-browser-heading">
+                      <span className="ssh-browser-eyebrow">SFTP Browser</span>
+                      <span
+                        className="ssh-browser-path"
+                        title={browserState.path ?? 'Loading path'}
+                      >
+                        {browserState.path ?? 'Loading path...'}
+                      </span>
+                    </div>
+                    <button
+                      aria-label="Close remote browser"
+                      className="ssh-browser-close"
+                      onClick={() => closeSshBrowserForTab(browserState.tabId)}
+                      type="button"
+                    >
+                      <X aria-hidden="true" className="ssh-browser-close-icon" />
+                    </button>
+                  </div>
+                  <div className="ssh-browser-toolbar">
+                    <button
+                      className="ssh-browser-toolbar-button"
+                      disabled={!browserParentPath || browserState.isLoading}
+                      onClick={() => handleOpenSshBrowserParent(browserState)}
+                      type="button"
+                    >
+                      Up
+                    </button>
+                    <button
+                      className="ssh-browser-toolbar-button"
+                      disabled={browserState.isLoading}
+                      onClick={() => handleRefreshSshBrowser(browserState)}
+                      type="button"
+                    >
+                      {browserState.isLoading ? 'Loading...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {browserState.errorMessage ? (
+                    <p className="ssh-browser-error">{browserState.errorMessage}</p>
+                  ) : null}
+                  <div className="ssh-browser-list">
+                    {!browserState.errorMessage && browserState.entries.length === 0 ? (
+                      <div className="ssh-browser-empty">
+                        {browserState.isLoading
+                          ? 'Loading remote files...'
+                          : 'This folder is empty.'}
+                      </div>
+                    ) : null}
+                    {browserState.entries.map((entry) =>
+                      entry.isDirectory ? (
+                        <button
+                          className="ssh-browser-entry is-directory"
+                          key={`dir-${entry.name}`}
+                          onClick={() => handleOpenSshBrowserDirectory(browserState, entry)}
+                          type="button"
+                        >
+                          <span className="ssh-browser-entry-name">{entry.name}</span>
+                          <span className="ssh-browser-entry-meta">Directory</span>
+                        </button>
+                      ) : (
+                        <div className="ssh-browser-entry" key={`file-${entry.name}`}>
+                          <span className="ssh-browser-entry-name">{entry.name}</span>
+                          <span className="ssh-browser-entry-meta">File</span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </aside>
+              )
+            })}
+          </div>
+        ) : null}
       </section>
       {isSshConfigDialogOpen ? (
         <SshConfigDialog

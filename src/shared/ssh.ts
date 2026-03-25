@@ -2,6 +2,16 @@ import type { TerminalCreateResult } from './terminal'
 
 export type SshAuthMethod = 'privateKey' | 'password'
 
+export interface SshRemoteDirectoryEntry {
+  isDirectory: boolean
+  name: string
+}
+
+export interface SshRemoteDirectoryListing {
+  entries: SshRemoteDirectoryEntry[]
+  path: string
+}
+
 export interface SshServerConfigInput {
   authMethod: SshAuthMethod
   description: string
@@ -22,8 +32,9 @@ export interface SshServerConfigSaveInput extends SshServerConfigInput {
 }
 
 export interface SshApi {
-  connect: (configId: string) => Promise<TerminalCreateResult>
+  connect: (configId: string, cwd?: string) => Promise<TerminalCreateResult>
   deleteConfig: (configId: string) => Promise<void>
+  listDirectory: (configId: string, path?: string) => Promise<SshRemoteDirectoryListing>
   listConfigs: () => Promise<SshServerConfig[]>
   onConfigAdded: (callback: (config: SshServerConfig) => void) => () => void
   onConfigDeleted: (callback: (configId: string) => void) => () => void

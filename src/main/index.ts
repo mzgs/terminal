@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, type WebContents } from 'electron'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   accessSync,
@@ -15,7 +15,13 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, type IPty } from 'node-pty'
 import icon from '../../resources/icon.png?asset'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
-import type { SshServerConfig, SshServerConfigInput, SshServerConfigSaveInput } from '../shared/ssh'
+import type {
+  SshRemoteDirectoryEntry,
+  SshRemoteDirectoryListing,
+  SshServerConfig,
+  SshServerConfigInput,
+  SshServerConfigSaveInput
+} from '../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../shared/terminal'
 
 interface TerminalSession {
@@ -45,6 +51,9 @@ const sshServersStoreFileName = 'ssh-servers.json'
 const sshPasswordEncryptionSecret = 'T3rm!nal_SSH#2026$Vaulfe35dt@91xZ'
 const sshPasswordEncryptionPrefix = 'enc-v1'
 const sshPasswordEncryptionKey = createHash('sha256').update(sshPasswordEncryptionSecret).digest()
+const sshRemoteCwdOscPrefix = '\u001b]633;TerminalRemoteCwd='
+const sshRemoteDirectoryListingStartPrefix = '__TERMINAL_REMOTE_DIR__'
+const sshRemoteDirectoryListingEndMarker = '__TERMINAL_REMOTE_DIR_END__'
 
 function ensureNodePtyHelpersExecutable(): void {
   if (process.platform === 'win32') {
@@ -125,6 +134,10 @@ function getShellCandidates(): string[] {
         .filter((candidate) => !candidate.includes('/') || isExecutableFile(candidate))
     )
   )
+}
+
+function quoteForPosixShell(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 function getTerminalCwd(): string {
@@ -576,6 +589,192 @@ printf '%s\\n' "$TERMINAL_SSH_PASSWORD"
   return helperPath
 }
 
+function getSshCommandEnv(
+  password: string | null,
+  requireNonInteractiveAuth = false
+): Record<string, string> | undefined {
+  if (!password) {
+    return undefined
+  }
+
+  const askpassHelperPath = ensureSshAskpassHelper()
+
+  if (!askpassHelperPath) {
+    if (requireNonInteractiveAuth) {
+      throw new Error('Password-based remote browsing requires SSH askpass support.')
+    }
+
+    return undefined
+  }
+
+  return {
+    DISPLAY: process.env.DISPLAY || 'terminal:0',
+    SSH_ASKPASS: askpassHelperPath,
+    SSH_ASKPASS_REQUIRE: 'force',
+    TERMINAL_SSH_PASSWORD: password
+  }
+}
+
+function buildSshBaseArgs(config: SshServerConfig): string[] {
+  const args: string[] = []
+
+  if (config.authMethod === 'password') {
+    args.push(
+      '-o',
+      'PreferredAuthentications=password,keyboard-interactive',
+      '-o',
+      'PubkeyAuthentication=no'
+    )
+  }
+
+  if (config.authMethod === 'privateKey' && config.privateKeyPath !== '') {
+    args.push('-i', config.privateKeyPath, '-o', 'IdentitiesOnly=yes')
+  }
+
+  args.push('-p', String(config.port))
+
+  return args
+}
+
+function buildInteractiveSshRemoteCommand(cwd?: string): string {
+  const scriptLines = [
+    'shell_path=${SHELL:-/bin/sh}',
+    'shell_name=${shell_path##*/}',
+    `emit_cwd() { printf '\\033]633;TerminalRemoteCwd=%s\\007' "$PWD"; }`,
+    cwd?.trim() ? `cd -- ${quoteForPosixShell(cwd.trim())} 2>/dev/null || :` : '',
+    'case "$shell_name" in',
+    '  zsh)',
+    '    _terminal_zdotdir="$(mktemp -d "${TMPDIR:-/tmp}/terminal-zsh.XXXXXX" 2>/dev/null)" || _terminal_zdotdir=""',
+    '    if [ -n "$_terminal_zdotdir" ]; then',
+    `      cat >"$_terminal_zdotdir/.zshenv" <<'EOF'`,
+    '[[ -f "$HOME/.zshenv" ]] && source "$HOME/.zshenv"',
+    'EOF',
+    `      cat >"$_terminal_zdotdir/.zprofile" <<'EOF'`,
+    '[[ -f "$HOME/.zprofile" ]] && source "$HOME/.zprofile"',
+    'EOF',
+    `      cat >"$_terminal_zdotdir/.zshrc" <<'EOF'`,
+    '[[ -f "$HOME/.zshrc" ]] && source "$HOME/.zshrc"',
+    `function _terminal_emit_remote_cwd() { printf '${sshRemoteCwdOscPrefix}%s\\007' "$PWD"; }`,
+    'autoload -Uz add-zsh-hook 2>/dev/null || true',
+    'if whence add-zsh-hook >/dev/null 2>&1; then',
+    '  add-zsh-hook precmd _terminal_emit_remote_cwd',
+    'elif (( ${precmd_functions[(I)_terminal_emit_remote_cwd]} == 0 )); then',
+    '  precmd_functions+=(_terminal_emit_remote_cwd)',
+    'fi',
+    '_terminal_emit_remote_cwd',
+    'EOF',
+    `      cat >"$_terminal_zdotdir/.zlogin" <<'EOF'`,
+    '[[ -f "$HOME/.zlogin" ]] && source "$HOME/.zlogin"',
+    'EOF',
+    `      cat >"$_terminal_zdotdir/.zlogout" <<'EOF'`,
+    'command rm -rf -- "$ZDOTDIR" 2>/dev/null || true',
+    'EOF',
+    '      exec env ZDOTDIR="$_terminal_zdotdir" "$shell_path" -il',
+    '    fi',
+    '    ;;',
+    'esac',
+    'if [ "$shell_name" = "bash" ]; then',
+    `  _terminal_prompt_command='printf '\\''${sshRemoteCwdOscPrefix}%s\\007'\\'' "$PWD"'`,
+    '  export PROMPT_COMMAND="${_terminal_prompt_command}${PROMPT_COMMAND:+;${PROMPT_COMMAND}}"',
+    'fi',
+    'emit_cwd',
+    'exec "$shell_path" -il'
+  ].filter((line) => line !== '')
+
+  return `sh -lc ${quoteForPosixShell(scriptLines.join('\n'))}`
+}
+
+function buildSshListDirectoryCommand(path?: string): string {
+  const scriptLines = [
+    'set -e',
+    path?.trim() ? `cd -- ${quoteForPosixShell(path.trim())}` : '',
+    'current_path=$(pwd -P)',
+    `printf '${sshRemoteDirectoryListingStartPrefix}%s\\n' "$current_path"`,
+    'LC_ALL=C ls -1Ap',
+    `printf '${sshRemoteDirectoryListingEndMarker}\\n'`
+  ].filter((line) => line !== '')
+
+  return `sh -lc ${quoteForPosixShell(scriptLines.join('\n'))}`
+}
+
+function runSshCommand(
+  config: SshServerConfig,
+  password: string | null,
+  remoteCommand: string
+): Promise<string> {
+  const sshEnv = getSshCommandEnv(password, true)
+  const commandEnv = sshEnv ? { ...process.env, ...sshEnv } : process.env
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      'ssh',
+      [...buildSshBaseArgs(config), `${config.username}@${config.host}`, remoteCommand],
+      {
+        encoding: 'utf8',
+        env: commandEnv
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(stdout)
+          return
+        }
+
+        const message = stderr.trim() || stdout.trim() || error.message
+        reject(new Error(message))
+      }
+    )
+  })
+}
+
+function parseSshRemoteDirectoryListing(output: string): SshRemoteDirectoryListing {
+  const entries: SshRemoteDirectoryEntry[] = []
+  const lines = output.split(/\r?\n/)
+  let currentPath: string | null = null
+  let isReadingEntries = false
+
+  for (const line of lines) {
+    if (line.startsWith(sshRemoteDirectoryListingStartPrefix)) {
+      currentPath = line.slice(sshRemoteDirectoryListingStartPrefix.length).trim()
+      isReadingEntries = true
+      continue
+    }
+
+    if (line === sshRemoteDirectoryListingEndMarker) {
+      break
+    }
+
+    if (!isReadingEntries || line === '') {
+      continue
+    }
+
+    const isDirectory = line.endsWith('/')
+    const name = isDirectory ? line.slice(0, -1) : line
+
+    if (name === '.' || name === '..' || name === '') {
+      continue
+    }
+
+    entries.push({ isDirectory, name })
+  }
+
+  if (!currentPath) {
+    throw new Error('Unable to read the remote directory listing.')
+  }
+
+  entries.sort((left, right) => {
+    if (left.isDirectory !== right.isDirectory) {
+      return left.isDirectory ? -1 : 1
+    }
+
+    return left.name.localeCompare(right.name)
+  })
+
+  return {
+    entries,
+    path: currentPath
+  }
+}
+
 function parsePersistedRestorableTabState(value: unknown): RestorableTabState | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -599,7 +798,15 @@ function parsePersistedRestorableTabState(value: unknown): RestorableTabState | 
     typeof record.configId === 'string' &&
     record.configId.trim() !== ''
   ) {
+    if (record.cwd !== undefined && typeof record.cwd !== 'string') {
+      return null
+    }
+
+    const cwd =
+      typeof record.cwd === 'string' && record.cwd.trim() !== '' ? record.cwd.trim() : undefined
+
     return {
+      cwd,
       configId: record.configId.trim(),
       kind: 'ssh'
     }
@@ -788,37 +995,13 @@ function deleteSshServer(configId: string): void {
 
 function buildSshTerminalCreateOptions(
   config: SshServerConfig,
-  password: string | null
+  password: string | null,
+  cwd?: string
 ): TerminalCreateOptions {
-  const args: string[] = []
-  let env: Record<string, string> | undefined
+  const args = buildSshBaseArgs(config)
+  const env = getSshCommandEnv(password)
 
-  if (config.authMethod === 'password') {
-    args.push(
-      '-o',
-      'PreferredAuthentications=password,keyboard-interactive',
-      '-o',
-      'PubkeyAuthentication=no'
-    )
-
-    if (password) {
-      const askpassHelperPath = ensureSshAskpassHelper()
-
-      if (askpassHelperPath) {
-        env = {
-          SSH_ASKPASS: askpassHelperPath,
-          SSH_ASKPASS_REQUIRE: 'force',
-          TERMINAL_SSH_PASSWORD: password
-        }
-      }
-    }
-  }
-
-  if (config.authMethod === 'privateKey' && config.privateKeyPath !== '') {
-    args.push('-i', config.privateKeyPath, '-o', 'IdentitiesOnly=yes')
-  }
-
-  args.push('-p', String(config.port), `${config.username}@${config.host}`)
+  args.push('-tt', `${config.username}@${config.host}`, buildInteractiveSshRemoteCommand(cwd))
 
   return {
     args,
@@ -829,7 +1012,11 @@ function buildSshTerminalCreateOptions(
   }
 }
 
-function connectToSshServer(webContents: WebContents, configId: string): TerminalCreateResult {
+function connectToSshServer(
+  webContents: WebContents,
+  payload: { configId: string; cwd?: string }
+): TerminalCreateResult {
+  const configId = payload.configId
   const config = sshServers.find((server) => server.id === configId)
 
   if (!config) {
@@ -838,7 +1025,23 @@ function connectToSshServer(webContents: WebContents, configId: string): Termina
 
   const password = config.authMethod === 'password' ? decryptSshPassword(config.password) : null
 
-  return createTerminal(webContents, buildSshTerminalCreateOptions(config, password))
+  return createTerminal(webContents, buildSshTerminalCreateOptions(config, password, payload.cwd))
+}
+
+async function listSshDirectory(
+  configId: string,
+  path?: string
+): Promise<SshRemoteDirectoryListing> {
+  const config = sshServers.find((server) => server.id === configId)
+
+  if (!config) {
+    throw new Error('SSH server config not found.')
+  }
+
+  const password = config.authMethod === 'password' ? decryptSshPassword(config.password) : null
+  const output = await runSshCommand(config, password, buildSshListDirectoryCommand(path))
+
+  return parseSshRemoteDirectoryListing(output)
 }
 
 async function openFolderPath(path: string): Promise<void> {
@@ -1018,11 +1221,14 @@ app.whenReady().then(() => {
     destroyTerminal(terminalId)
   })
   ipcMain.handle('ssh:list-configs', () => listSshServers())
-  ipcMain.handle('ssh:connect', (event, configId: string) =>
-    connectToSshServer(event.sender, configId)
+  ipcMain.handle('ssh:connect', (event, payload: { configId: string; cwd?: string }) =>
+    connectToSshServer(event.sender, payload)
   )
   ipcMain.handle('ssh:delete-config', (event, configId: string) =>
     removeSshConfig(event.sender, configId)
+  )
+  ipcMain.handle('ssh:list-directory', (_event, payload: { configId: string; path?: string }) =>
+    listSshDirectory(payload.configId, payload.path)
   )
   ipcMain.handle('ssh:save-config', (event, payload: SshServerConfigSaveInput) =>
     submitSshConfig(event.sender, payload)

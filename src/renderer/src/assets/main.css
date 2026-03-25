@@ -325,6 +325,163 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.ssh-browser-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ssh-browser-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ssh-browser-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(123, 242, 176, 0.86);
+}
+
+.ssh-browser-path {
+  overflow: hidden;
+  color: #f5fbff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ssh-browser-close {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(217, 230, 248, 0.78);
+  cursor: pointer;
+}
+
+.ssh-browser-close:hover,
+.ssh-browser-close:focus-visible {
+  border-color: rgba(119, 215, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5fbff;
+  outline: none;
+}
+
+.ssh-browser-close-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.1;
+}
+
+.ssh-browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ssh-browser-toolbar-button {
+  min-width: 78px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5fbff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ssh-browser-toolbar-button:hover:not(:disabled),
+.ssh-browser-toolbar-button:focus-visible {
+  border-color: rgba(119, 215, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.ssh-browser-toolbar-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ssh-browser-error {
+  margin: 0;
+  color: #ffb3ad;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ssh-browser-list {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.ssh-browser-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ssh-browser-entry.is-directory {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ssh-browser-entry.is-directory:hover,
+.ssh-browser-entry.is-directory:focus-visible {
+  border-color: rgba(119, 215, 255, 0.18);
+  background: rgba(119, 215, 255, 0.09);
+  outline: none;
+}
+
+.ssh-browser-entry-name,
+.ssh-browser-entry-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ssh-browser-entry-name {
+  color: #f5fbff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ssh-browser-entry-meta {
+  color: rgba(181, 198, 220, 0.72);
+  font-size: 11px;
+}
+
+.ssh-browser-empty {
+  padding: 14px 12px;
+  border: 1px dashed rgba(119, 215, 255, 0.14);
+  border-radius: 10px;
+  color: rgba(181, 198, 220, 0.72);
+  font-size: 12px;
+  text-align: center;
+}
+
 .tab-action-menu-item {
   display: flex;
   align-items: center;
@@ -457,8 +614,112 @@ body {
 
 .terminal-workspace {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   background: #000;
+  overflow: hidden;
+}
+
+.terminal-workspace.has-browser {
+  grid-template-columns:
+    minmax(0, 1fr)
+    10px
+    minmax(240px, min(var(--ssh-browser-width, 320px), calc(100% - 320px)));
+}
+
+.terminal-workspace.is-resizing {
+  cursor: col-resize;
+}
+
+.terminal-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: #000;
+}
+
+.ssh-browser-resizer {
+  position: relative;
+  width: 10px;
+  min-height: 0;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+
+.ssh-browser-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(119, 215, 255, 0.14);
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.ssh-browser-resizer:hover::before,
+.ssh-browser-resizer:focus-visible::before,
+.terminal-workspace.is-resizing .ssh-browser-resizer::before {
+  background: rgba(119, 215, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(119, 215, 255, 0.18);
+}
+
+.ssh-browser-resizer:focus-visible {
+  outline: none;
+}
+
+.ssh-browser-dock {
+  position: absolute;
+  inset: 0;
+  z-index: 16;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ssh-browser-dock.is-visible {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.terminal-workspace.has-browser .ssh-browser-dock {
+  position: relative;
+  inset: auto;
+  grid-column: 3;
+}
+
+.ssh-browser {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 14px 14px;
+  border-left: 1px solid rgba(119, 215, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(10, 16, 25, 0.98), rgba(5, 8, 13, 0.98)),
+    rgba(8, 12, 18, 0.98);
+  box-shadow: -18px 0 36px rgba(0, 0, 0, 0.24);
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.ssh-browser.is-active {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .terminal-search {
@@ -600,6 +861,33 @@ body {
 
   .terminal-search-status {
     min-width: 56px;
+  }
+}
+
+@media (max-width: 900px) {
+  .terminal-workspace.has-browser {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .terminal-workspace.has-browser .ssh-browser-dock {
+    position: absolute;
+    inset: 0;
+    grid-column: 1;
+  }
+
+  .ssh-browser-resizer {
+    display: none;
+  }
+
+  .ssh-browser {
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    left: auto;
+    width: min(var(--ssh-browser-width, 340px), calc(100vw - 24px));
+    border: 1px solid rgba(119, 215, 255, 0.14);
+    border-radius: 16px;
+    box-shadow: 0 22px 44px rgba(0, 0, 0, 0.42);
   }
 }
 

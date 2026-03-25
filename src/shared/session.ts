@@ -5,6 +5,7 @@ export interface LocalRestorableTabState {
 
 export interface SshRestorableTabState {
   configId: string
+  cwd?: string
   kind: 'ssh'
 }
 

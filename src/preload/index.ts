@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { SessionApi } from '../shared/session'
 import type { ShellApi } from '../shared/shell'
-import type { SshApi, SshServerConfig } from '../shared/ssh'
+import type { SshApi, SshRemoteDirectoryListing, SshServerConfig } from '../shared/ssh'
 import type {
   TerminalApi,
   TerminalCreateOptions,
@@ -74,8 +74,13 @@ const shell: ShellApi = {
 }
 
 const ssh: SshApi = {
-  connect: (configId) => ipcRenderer.invoke('ssh:connect', configId),
+  connect: (configId, cwd) => ipcRenderer.invoke('ssh:connect', { configId, cwd }),
   deleteConfig: (configId) => ipcRenderer.invoke('ssh:delete-config', configId),
+  listDirectory: (configId, path) =>
+    ipcRenderer.invoke('ssh:list-directory', {
+      configId,
+      path
+    }) as Promise<SshRemoteDirectoryListing>,
   listConfigs: () => ipcRenderer.invoke('ssh:list-configs'),
   saveConfig: (config) => ipcRenderer.invoke('ssh:save-config', config),
   onConfigAdded: (callback) => {
