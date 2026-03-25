@@ -431,13 +431,14 @@ body {
 .ssh-browser-entry {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   min-width: 0;
   padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
 }
 
 .ssh-browser-entry.is-directory {
@@ -447,11 +448,63 @@ body {
   text-align: left;
 }
 
+.ssh-browser-entry:hover,
 .ssh-browser-entry.is-directory:hover,
 .ssh-browser-entry.is-directory:focus-visible {
   border-color: rgba(119, 215, 255, 0.18);
   background: rgba(119, 215, 255, 0.09);
   outline: none;
+}
+
+.ssh-browser-entry-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ssh-browser-entry-icon {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+  flex: 0 0 auto;
+}
+
+.ssh-browser-entry-icon-directory {
+  color: rgba(181, 198, 220, 0.78);
+}
+
+.ssh-browser-entry-icon-file {
+  color: rgba(181, 198, 220, 0.78);
+}
+
+.ssh-browser-entry-icon-archive {
+  color: rgba(255, 204, 112, 0.88);
+}
+
+.ssh-browser-entry-icon-audio {
+  color: rgba(255, 164, 108, 0.88);
+}
+
+.ssh-browser-entry-icon-code {
+  color: rgba(119, 215, 255, 0.88);
+}
+
+.ssh-browser-entry-icon-image {
+  color: rgba(214, 163, 255, 0.88);
+}
+
+.ssh-browser-entry-icon-script {
+  color: rgba(123, 242, 176, 0.9);
+}
+
+.ssh-browser-entry-icon-text {
+  color: rgba(199, 211, 229, 0.84);
+}
+
+.ssh-browser-entry-icon-video {
+  color: rgba(255, 142, 142, 0.88);
 }
 
 .ssh-browser-entry-name,
@@ -480,6 +533,57 @@ body {
   color: rgba(181, 198, 220, 0.72);
   font-size: 12px;
   text-align: center;
+}
+
+.ssh-browser-context-menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  min-width: 184px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(8, 12, 18, 0.98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+  -webkit-app-region: no-drag;
+}
+
+.ssh-browser-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #f5fbff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.ssh-browser-context-menu-item:hover,
+.ssh-browser-context-menu-item:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.ssh-browser-context-menu-item.is-danger {
+  color: #ffb3ad;
+}
+
+.ssh-browser-context-menu-item.is-danger:hover,
+.ssh-browser-context-menu-item.is-danger:focus-visible {
+  background: rgba(255, 98, 90, 0.12);
+}
+
+.ssh-browser-context-menu-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.1;
+  flex: 0 0 auto;
 }
 
 .tab-action-menu-item {

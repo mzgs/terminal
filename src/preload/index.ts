@@ -76,12 +76,30 @@ const shell: ShellApi = {
 const ssh: SshApi = {
   connect: (configId, cwd) => ipcRenderer.invoke('ssh:connect', { configId, cwd }),
   deleteConfig: (configId) => ipcRenderer.invoke('ssh:delete-config', configId),
+  deletePath: (configId, path, isDirectory) =>
+    ipcRenderer.invoke('ssh:delete-path', {
+      configId,
+      isDirectory,
+      path
+    }),
+  downloadPath: (configId, path, isDirectory) =>
+    ipcRenderer.invoke('ssh:download-path', {
+      configId,
+      isDirectory,
+      path
+    }) as Promise<string>,
   listDirectory: (configId, path) =>
     ipcRenderer.invoke('ssh:list-directory', {
       configId,
       path
     }) as Promise<SshRemoteDirectoryListing>,
   listConfigs: () => ipcRenderer.invoke('ssh:list-configs'),
+  renamePath: (configId, path, nextPath) =>
+    ipcRenderer.invoke('ssh:rename-path', {
+      configId,
+      nextPath,
+      path
+    }),
   saveConfig: (config) => ipcRenderer.invoke('ssh:save-config', config),
   onConfigAdded: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: SshServerConfig): void => {

@@ -34,9 +34,12 @@ export interface SshServerConfigSaveInput extends SshServerConfigInput {
 export interface SshApi {
   connect: (configId: string, cwd?: string) => Promise<TerminalCreateResult>
   deleteConfig: (configId: string) => Promise<void>
+  deletePath: (configId: string, path: string, isDirectory: boolean) => Promise<void>
+  downloadPath: (configId: string, path: string, isDirectory: boolean) => Promise<string>
   listDirectory: (configId: string, path?: string) => Promise<SshRemoteDirectoryListing>
   listConfigs: () => Promise<SshServerConfig[]>
   onConfigAdded: (callback: (config: SshServerConfig) => void) => () => void
   onConfigDeleted: (callback: (configId: string) => void) => () => void
+  renamePath: (configId: string, path: string, nextPath: string) => Promise<void>
   saveConfig: (config: SshServerConfigSaveInput) => Promise<void>
 }

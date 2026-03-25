@@ -4,6 +4,16 @@ import { Terminal, type IBufferCell, type ITheme } from '@xterm/xterm'
 import {
   ChevronDown,
   ChevronUp,
+  Download,
+  File,
+  FileArchive,
+  FileCode,
+  FileImage,
+  FileMusic,
+  FileTerminal,
+  FileText,
+  FileVideoCamera,
+  Folder,
   FolderOpen,
   HardDrive,
   Pencil,
@@ -13,6 +23,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Reorder, useDragControls } from 'motion/react'
 import Modal from 'react-modal'
 import '@xterm/xterm/css/xterm.css'
@@ -78,6 +89,18 @@ interface SshBrowserState {
 type SshBrowserStates = Record<string, SshBrowserState>
 type SshBrowserWidths = Record<string, number>
 
+interface SshBrowserContextMenuState {
+  entry: SshRemoteDirectoryEntry
+  tabId: string
+  x: number
+  y: number
+}
+
+interface SshBrowserFileIconDescriptor {
+  icon: LucideIcon
+  toneClassName: string
+}
+
 const defaultTabTitle = '~'
 const searchRefreshDebounceMs = 120
 const defaultSshBrowserWidth = 320
@@ -91,6 +114,140 @@ const sshRemoteCwdPattern = new RegExp(
   String.raw`\x1b]633;TerminalRemoteCwd=([^\x07\x1b]*)(?:\x07|\x1b\\)`,
   'g'
 )
+const defaultSshBrowserFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: File,
+  toneClassName: 'ssh-browser-entry-icon-file'
+}
+const sshBrowserArchiveFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileArchive,
+  toneClassName: 'ssh-browser-entry-icon-archive'
+}
+const sshBrowserCodeFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileCode,
+  toneClassName: 'ssh-browser-entry-icon-code'
+}
+const sshBrowserImageFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileImage,
+  toneClassName: 'ssh-browser-entry-icon-image'
+}
+const sshBrowserAudioFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileMusic,
+  toneClassName: 'ssh-browser-entry-icon-audio'
+}
+const sshBrowserScriptFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileTerminal,
+  toneClassName: 'ssh-browser-entry-icon-script'
+}
+const sshBrowserTextFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileText,
+  toneClassName: 'ssh-browser-entry-icon-text'
+}
+const sshBrowserVideoFileIconDescriptor: SshBrowserFileIconDescriptor = {
+  icon: FileVideoCamera,
+  toneClassName: 'ssh-browser-entry-icon-video'
+}
+const sshBrowserFileIconByExactName = new Map<string, SshBrowserFileIconDescriptor>([
+  ['.editorconfig', sshBrowserCodeFileIconDescriptor],
+  ['.env', sshBrowserTextFileIconDescriptor],
+  ['.gitignore', sshBrowserCodeFileIconDescriptor],
+  ['.npmrc', sshBrowserCodeFileIconDescriptor],
+  ['.yarnrc', sshBrowserCodeFileIconDescriptor],
+  ['dockerfile', sshBrowserCodeFileIconDescriptor],
+  ['makefile', sshBrowserCodeFileIconDescriptor],
+  ['readme', sshBrowserTextFileIconDescriptor]
+])
+const sshBrowserFileIconBySuffix = new Map<string, SshBrowserFileIconDescriptor>([
+  ['.tar.gz', sshBrowserArchiveFileIconDescriptor],
+  ['.tar.bz2', sshBrowserArchiveFileIconDescriptor],
+  ['.tar.xz', sshBrowserArchiveFileIconDescriptor],
+  ['.tgz', sshBrowserArchiveFileIconDescriptor],
+  ['.tbz2', sshBrowserArchiveFileIconDescriptor],
+  ['.txz', sshBrowserArchiveFileIconDescriptor],
+  ['.targz', sshBrowserArchiveFileIconDescriptor],
+  ['.zip', sshBrowserArchiveFileIconDescriptor],
+  ['.7z', sshBrowserArchiveFileIconDescriptor],
+  ['.rar', sshBrowserArchiveFileIconDescriptor],
+  ['.tar', sshBrowserArchiveFileIconDescriptor],
+  ['.gz', sshBrowserArchiveFileIconDescriptor],
+  ['.bz2', sshBrowserArchiveFileIconDescriptor],
+  ['.xz', sshBrowserArchiveFileIconDescriptor],
+  ['.sh', sshBrowserScriptFileIconDescriptor],
+  ['.bash', sshBrowserScriptFileIconDescriptor],
+  ['.zsh', sshBrowserScriptFileIconDescriptor],
+  ['.fish', sshBrowserScriptFileIconDescriptor],
+  ['.ksh', sshBrowserScriptFileIconDescriptor],
+  ['.command', sshBrowserScriptFileIconDescriptor],
+  ['.ps1', sshBrowserScriptFileIconDescriptor],
+  ['.bat', sshBrowserScriptFileIconDescriptor],
+  ['.cmd', sshBrowserScriptFileIconDescriptor],
+  ['.ts', sshBrowserCodeFileIconDescriptor],
+  ['.tsx', sshBrowserCodeFileIconDescriptor],
+  ['.js', sshBrowserCodeFileIconDescriptor],
+  ['.jsx', sshBrowserCodeFileIconDescriptor],
+  ['.mjs', sshBrowserCodeFileIconDescriptor],
+  ['.cjs', sshBrowserCodeFileIconDescriptor],
+  ['.json', sshBrowserCodeFileIconDescriptor],
+  ['.jsonc', sshBrowserCodeFileIconDescriptor],
+  ['.yaml', sshBrowserCodeFileIconDescriptor],
+  ['.yml', sshBrowserCodeFileIconDescriptor],
+  ['.toml', sshBrowserCodeFileIconDescriptor],
+  ['.xml', sshBrowserCodeFileIconDescriptor],
+  ['.html', sshBrowserCodeFileIconDescriptor],
+  ['.htm', sshBrowserCodeFileIconDescriptor],
+  ['.css', sshBrowserCodeFileIconDescriptor],
+  ['.scss', sshBrowserCodeFileIconDescriptor],
+  ['.sass', sshBrowserCodeFileIconDescriptor],
+  ['.less', sshBrowserCodeFileIconDescriptor],
+  ['.vue', sshBrowserCodeFileIconDescriptor],
+  ['.py', sshBrowserCodeFileIconDescriptor],
+  ['.rb', sshBrowserCodeFileIconDescriptor],
+  ['.php', sshBrowserCodeFileIconDescriptor],
+  ['.java', sshBrowserCodeFileIconDescriptor],
+  ['.kt', sshBrowserCodeFileIconDescriptor],
+  ['.go', sshBrowserCodeFileIconDescriptor],
+  ['.rs', sshBrowserCodeFileIconDescriptor],
+  ['.c', sshBrowserCodeFileIconDescriptor],
+  ['.cc', sshBrowserCodeFileIconDescriptor],
+  ['.cpp', sshBrowserCodeFileIconDescriptor],
+  ['.h', sshBrowserCodeFileIconDescriptor],
+  ['.hpp', sshBrowserCodeFileIconDescriptor],
+  ['.sql', sshBrowserCodeFileIconDescriptor],
+  ['.png', sshBrowserImageFileIconDescriptor],
+  ['.jpg', sshBrowserImageFileIconDescriptor],
+  ['.jpeg', sshBrowserImageFileIconDescriptor],
+  ['.gif', sshBrowserImageFileIconDescriptor],
+  ['.webp', sshBrowserImageFileIconDescriptor],
+  ['.svg', sshBrowserImageFileIconDescriptor],
+  ['.bmp', sshBrowserImageFileIconDescriptor],
+  ['.ico', sshBrowserImageFileIconDescriptor],
+  ['.tif', sshBrowserImageFileIconDescriptor],
+  ['.tiff', sshBrowserImageFileIconDescriptor],
+  ['.avif', sshBrowserImageFileIconDescriptor],
+  ['.heic', sshBrowserImageFileIconDescriptor],
+  ['.mp3', sshBrowserAudioFileIconDescriptor],
+  ['.wav', sshBrowserAudioFileIconDescriptor],
+  ['.flac', sshBrowserAudioFileIconDescriptor],
+  ['.ogg', sshBrowserAudioFileIconDescriptor],
+  ['.m4a', sshBrowserAudioFileIconDescriptor],
+  ['.aac', sshBrowserAudioFileIconDescriptor],
+  ['.opus', sshBrowserAudioFileIconDescriptor],
+  ['.mp4', sshBrowserVideoFileIconDescriptor],
+  ['.mov', sshBrowserVideoFileIconDescriptor],
+  ['.mkv', sshBrowserVideoFileIconDescriptor],
+  ['.avi', sshBrowserVideoFileIconDescriptor],
+  ['.webm', sshBrowserVideoFileIconDescriptor],
+  ['.m4v', sshBrowserVideoFileIconDescriptor],
+  ['.wmv', sshBrowserVideoFileIconDescriptor],
+  ['.txt', sshBrowserTextFileIconDescriptor],
+  ['.md', sshBrowserTextFileIconDescriptor],
+  ['.mdx', sshBrowserTextFileIconDescriptor],
+  ['.rst', sshBrowserTextFileIconDescriptor],
+  ['.log', sshBrowserTextFileIconDescriptor],
+  ['.ini', sshBrowserTextFileIconDescriptor],
+  ['.cfg', sshBrowserTextFileIconDescriptor],
+  ['.conf', sshBrowserTextFileIconDescriptor],
+  ['.csv', sshBrowserTextFileIconDescriptor]
+])
 const defaultTerminalTheme = {
   background: '#000000',
   black: '#000000',
@@ -367,6 +524,28 @@ function clampSshBrowserWidth(desiredWidth: number, workspaceWidth: number): num
   )
 
   return Math.min(Math.max(Math.round(desiredWidth), minSshBrowserWidth), maxWidth)
+}
+
+function getSshBrowserFileIconDescriptor(fileName: string): SshBrowserFileIconDescriptor {
+  const normalizedFileName = fileName.trim().toLowerCase()
+
+  if (normalizedFileName === '') {
+    return defaultSshBrowserFileIconDescriptor
+  }
+
+  const exactDescriptor = sshBrowserFileIconByExactName.get(normalizedFileName)
+
+  if (exactDescriptor) {
+    return exactDescriptor
+  }
+
+  for (const [suffix, descriptor] of sshBrowserFileIconBySuffix) {
+    if (normalizedFileName.endsWith(suffix)) {
+      return descriptor
+    }
+  }
+
+  return defaultSshBrowserFileIconDescriptor
 }
 
 function getTabStatusLabel(tab: TabRecord): string {
@@ -1054,6 +1233,8 @@ function TerminalApp(): React.JSX.Element {
   const [isSshBrowserResizing, setIsSshBrowserResizing] = useState(false)
   const [sshBrowserStates, setSshBrowserStates] = useState<SshBrowserStates>({})
   const [sshBrowserWidths, setSshBrowserWidths] = useState<SshBrowserWidths>({})
+  const [sshBrowserContextMenu, setSshBrowserContextMenu] =
+    useState<SshBrowserContextMenuState | null>(null)
   const [isSshConfigDialogOpen, setIsSshConfigDialogOpen] = useState(false)
   const [sshServerBeingEdited, setSshServerBeingEdited] = useState<SshServerConfig | null>(null)
   const [sshServers, setSshServers] = useState<SshServerConfig[]>([])
@@ -1062,6 +1243,7 @@ function TerminalApp(): React.JSX.Element {
   const workspaceShellRef = useRef<HTMLElement>(null)
   const tabStripRef = useRef<HTMLDivElement>(null)
   const sshMenuRef = useRef<HTMLDivElement>(null)
+  const sshBrowserContextMenuRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<TabRecord[]>([])
   const activeTabIdRef = useRef<string | null>(null)
   const isSearchOpenRef = useRef(false)
@@ -1144,6 +1326,37 @@ function TerminalApp(): React.JSX.Element {
       }
     })
   }, [])
+
+  const closeSshBrowserContextMenu = useCallback((): void => {
+    setSshBrowserContextMenu(null)
+  }, [])
+
+  const updateSshBrowserState = useCallback(
+    (
+      tabId: string,
+      updater: (browserState: SshBrowserState) => SshBrowserState
+    ): void => {
+      setSshBrowserStates((currentStates) => {
+        const currentState = currentStates[tabId]
+
+        if (!currentState) {
+          return currentStates
+        }
+
+        const nextState = updater(currentState)
+
+        if (nextState === currentState) {
+          return currentStates
+        }
+
+        return {
+          ...currentStates,
+          [tabId]: nextState
+        }
+      })
+    },
+    []
+  )
 
   const loadSshDirectory = useCallback(
     (configId: string, path: string | undefined, tabId: string): void => {
@@ -1236,6 +1449,34 @@ function TerminalApp(): React.JSX.Element {
         })
     },
     [updateTab]
+  )
+
+  const runSshBrowserMutation = useCallback(
+    async (
+      browserState: SshBrowserState,
+      action: () => Promise<void>,
+      failureMessage: string
+    ): Promise<void> => {
+      updateSshBrowserState(browserState.tabId, (currentState) => ({
+        ...currentState,
+        errorMessage: null,
+        isLoading: true
+      }))
+
+      try {
+        await action()
+        loadSshDirectory(browserState.configId, browserState.path ?? undefined, browserState.tabId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+
+        updateSshBrowserState(browserState.tabId, (currentState) => ({
+          ...currentState,
+          errorMessage: message || failureMessage,
+          isLoading: false
+        }))
+      }
+    },
+    [loadSshDirectory, updateSshBrowserState]
   )
 
   const resetSearchResults = useCallback((): void => {
@@ -2119,6 +2360,11 @@ function TerminalApp(): React.JSX.Element {
         return
       }
 
+      if (sshBrowserContextMenu) {
+        closeSshBrowserContextMenu()
+        return
+      }
+
       closeSshBrowserForTab(activeSshBrowserState.tabId)
     }
 
@@ -2127,7 +2373,56 @@ function TerminalApp(): React.JSX.Element {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
-  }, [activeTabId, closeSshBrowserForTab, sshBrowserStates])
+  }, [
+    activeTabId,
+    closeSshBrowserContextMenu,
+    closeSshBrowserForTab,
+    sshBrowserContextMenu,
+    sshBrowserStates
+  ])
+
+  useEffect(() => {
+    if (!sshBrowserContextMenu) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (sshBrowserContextMenuRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      closeSshBrowserContextMenu()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      closeSshBrowserContextMenu()
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true })
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
+    }
+  }, [closeSshBrowserContextMenu, sshBrowserContextMenu])
+
+  useEffect(() => {
+    if (!sshBrowserContextMenu) {
+      return
+    }
+
+    if (
+      activeTabId !== sshBrowserContextMenu.tabId ||
+      sshBrowserStates[sshBrowserContextMenu.tabId] === undefined
+    ) {
+      closeSshBrowserContextMenu()
+    }
+  }, [activeTabId, closeSshBrowserContextMenu, sshBrowserContextMenu, sshBrowserStates])
 
   useEffect(() => {
     if (!isSshMenuOpen) {
@@ -2399,6 +2694,137 @@ function TerminalApp(): React.JSX.Element {
       loadSshDirectory(browserState.configId, browserState.path ?? undefined, browserState.tabId)
     },
     [loadSshDirectory]
+  )
+
+  const handleOpenSshBrowserContextMenu = useCallback(
+    (
+      event: React.MouseEvent<HTMLElement>,
+      browserState: SshBrowserState,
+      entry: SshRemoteDirectoryEntry
+    ): void => {
+      if (!browserState.path || browserState.isLoading) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const menuPadding = 12
+      const menuWidth = 184
+      const menuHeight = 156
+      const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
+      const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
+
+      setSshBrowserContextMenu({
+        entry,
+        tabId: browserState.tabId,
+        x: Math.min(Math.max(event.clientX, menuPadding), maxX),
+        y: Math.min(Math.max(event.clientY, menuPadding), maxY)
+      })
+    },
+    []
+  )
+
+  const handleDeleteSshBrowserEntry = useCallback(
+    (browserState: SshBrowserState, entry: SshRemoteDirectoryEntry): void => {
+      if (!browserState.path || browserState.isLoading) {
+        return
+      }
+
+      closeSshBrowserContextMenu()
+
+      const entryLabel = entry.isDirectory ? 'folder' : 'file'
+      const shouldDelete = window.confirm(`Delete ${entryLabel} "${entry.name}"?`)
+
+      if (!shouldDelete) {
+        return
+      }
+
+      const remotePath = joinRemoteDirectoryPath(browserState.path, entry.name)
+
+      void runSshBrowserMutation(
+        browserState,
+        () => window.api.ssh.deletePath(browserState.configId, remotePath, entry.isDirectory),
+        'Unable to delete this remote entry.'
+      )
+    },
+    [closeSshBrowserContextMenu, runSshBrowserMutation]
+  )
+
+  const handleDownloadSshBrowserEntry = useCallback(
+    (browserState: SshBrowserState, entry: SshRemoteDirectoryEntry): void => {
+      if (!browserState.path || browserState.isLoading) {
+        return
+      }
+
+      closeSshBrowserContextMenu()
+      updateSshBrowserState(browserState.tabId, (currentState) => ({
+        ...currentState,
+        errorMessage: null
+      }))
+
+      const remotePath = joinRemoteDirectoryPath(browserState.path, entry.name)
+
+      void window.api.ssh
+        .downloadPath(browserState.configId, remotePath, entry.isDirectory)
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+
+          updateSshBrowserState(browserState.tabId, (currentState) => ({
+            ...currentState,
+            errorMessage: message || 'Unable to download this remote entry.'
+          }))
+        })
+    },
+    [closeSshBrowserContextMenu, updateSshBrowserState]
+  )
+
+  const handleRenameSshBrowserEntry = useCallback(
+    (browserState: SshBrowserState, entry: SshRemoteDirectoryEntry): void => {
+      if (!browserState.path || browserState.isLoading) {
+        return
+      }
+
+      closeSshBrowserContextMenu()
+
+      const nextNameInput = window.prompt('Rename to:', entry.name)
+
+      if (nextNameInput === null) {
+        return
+      }
+
+      const nextName = nextNameInput.trim()
+
+      if (nextName === '') {
+        updateSshBrowserState(browserState.tabId, (currentState) => ({
+          ...currentState,
+          errorMessage: 'Enter a name before renaming this remote entry.'
+        }))
+        return
+      }
+
+      if (nextName.includes('/')) {
+        updateSshBrowserState(browserState.tabId, (currentState) => ({
+          ...currentState,
+          errorMessage: 'Remote entry names cannot include "/".'
+        }))
+        return
+      }
+
+      if (nextName === entry.name) {
+        return
+      }
+
+      const remotePath = joinRemoteDirectoryPath(browserState.path, entry.name)
+      const nextPath = joinRemoteDirectoryPath(browserState.path, nextName)
+
+      void runSshBrowserMutation(
+        browserState,
+        () => window.api.ssh.renamePath(browserState.configId, remotePath, nextPath),
+        'Unable to rename this remote entry.'
+      )
+    },
+    [closeSshBrowserContextMenu, runSshBrowserMutation, updateSshBrowserState]
   )
 
   const handleSshBrowserResizePointerDown = useCallback(
@@ -2906,28 +3332,111 @@ function TerminalApp(): React.JSX.Element {
                           : 'This folder is empty.'}
                       </div>
                     ) : null}
-                    {browserState.entries.map((entry) =>
-                      entry.isDirectory ? (
-                        <button
-                          className="ssh-browser-entry is-directory"
-                          key={`dir-${entry.name}`}
-                          onClick={() => handleOpenSshBrowserDirectory(browserState, entry)}
-                          type="button"
+                    {browserState.entries.map((entry) => {
+                      if (entry.isDirectory) {
+                        return (
+                          <button
+                            className="ssh-browser-entry is-directory"
+                            key={`dir-${entry.name}`}
+                            onContextMenu={(event) =>
+                              handleOpenSshBrowserContextMenu(event, browserState, entry)
+                            }
+                            onClick={() => handleOpenSshBrowserDirectory(browserState, entry)}
+                            type="button"
+                          >
+                            <span className="ssh-browser-entry-main">
+                              <Folder
+                                aria-hidden="true"
+                                className="ssh-browser-entry-icon ssh-browser-entry-icon-directory"
+                              />
+                              <span className="ssh-browser-entry-name">{entry.name}</span>
+                            </span>
+                          </button>
+                        )
+                      }
+
+                      const fileIconDescriptor = getSshBrowserFileIconDescriptor(entry.name)
+                      const FileIcon = fileIconDescriptor.icon
+
+                      return (
+                        <div
+                          className="ssh-browser-entry"
+                          key={`file-${entry.name}`}
+                          onContextMenu={(event) =>
+                            handleOpenSshBrowserContextMenu(event, browserState, entry)
+                          }
                         >
-                          <span className="ssh-browser-entry-name">{entry.name}</span>
-                          <span className="ssh-browser-entry-meta">Directory</span>
-                        </button>
-                      ) : (
-                        <div className="ssh-browser-entry" key={`file-${entry.name}`}>
-                          <span className="ssh-browser-entry-name">{entry.name}</span>
-                          <span className="ssh-browser-entry-meta">File</span>
+                          <span className="ssh-browser-entry-main">
+                            <FileIcon
+                              aria-hidden="true"
+                              className={`ssh-browser-entry-icon ${fileIconDescriptor.toneClassName}`}
+                            />
+                            <span className="ssh-browser-entry-name">{entry.name}</span>
+                          </span>
                         </div>
                       )
-                    )}
+                    })}
                   </div>
                 </aside>
               )
             })}
+          </div>
+        ) : null}
+        {sshBrowserContextMenu ? (
+          <div
+            className="ssh-browser-context-menu"
+            ref={sshBrowserContextMenuRef}
+            role="menu"
+            style={{
+              left: sshBrowserContextMenu.x,
+              top: sshBrowserContextMenu.y
+            }}
+          >
+            {(() => {
+              const browserState = sshBrowserStates[sshBrowserContextMenu.tabId]
+
+              if (!browserState) {
+                return null
+              }
+
+              return (
+                <>
+                  <button
+                    className="ssh-browser-context-menu-item"
+                    onClick={() =>
+                      handleDownloadSshBrowserEntry(browserState, sshBrowserContextMenu.entry)
+                    }
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Download aria-hidden="true" className="ssh-browser-context-menu-icon" />
+                    Download
+                  </button>
+                  <button
+                    className="ssh-browser-context-menu-item"
+                    onClick={() =>
+                      handleRenameSshBrowserEntry(browserState, sshBrowserContextMenu.entry)
+                    }
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Pencil aria-hidden="true" className="ssh-browser-context-menu-icon" />
+                    Rename
+                  </button>
+                  <button
+                    className="ssh-browser-context-menu-item is-danger"
+                    onClick={() =>
+                      handleDeleteSshBrowserEntry(browserState, sshBrowserContextMenu.entry)
+                    }
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" className="ssh-browser-context-menu-icon" />
+                    Delete
+                  </button>
+                </>
+              )
+            })()}
           </div>
         ) : null}
       </section>

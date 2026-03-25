@@ -6,11 +6,12 @@ import {
   chmodSync,
   constants,
   existsSync,
+  mkdirSync,
   readFileSync,
   statSync,
   writeFileSync
 } from 'node:fs'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, join, parse } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, type IPty } from 'node-pty'
 import icon from '../../resources/icon.png?asset'
@@ -636,6 +637,27 @@ function buildSshBaseArgs(config: SshServerConfig): string[] {
   return args
 }
 
+function buildScpBaseArgs(config: SshServerConfig): string[] {
+  const args: string[] = []
+
+  if (config.authMethod === 'password') {
+    args.push(
+      '-o',
+      'PreferredAuthentications=password,keyboard-interactive',
+      '-o',
+      'PubkeyAuthentication=no'
+    )
+  }
+
+  if (config.authMethod === 'privateKey' && config.privateKeyPath !== '') {
+    args.push('-i', config.privateKeyPath, '-o', 'IdentitiesOnly=yes')
+  }
+
+  args.push('-P', String(config.port))
+
+  return args
+}
+
 function buildInteractiveSshRemoteCommand(cwd?: string): string {
   const scriptLines = [
     'shell_path=${SHELL:-/bin/sh}',
@@ -697,6 +719,24 @@ function buildSshListDirectoryCommand(path?: string): string {
   return `sh -lc ${quoteForPosixShell(scriptLines.join('\n'))}`
 }
 
+function buildSshDeletePathCommand(path: string, isDirectory: boolean): string {
+  const scriptLines = [
+    'set -e',
+    `${isDirectory ? 'rm -rf' : 'rm -f'} -- ${quoteForPosixShell(path)}`
+  ]
+
+  return `sh -lc ${quoteForPosixShell(scriptLines.join('\n'))}`
+}
+
+function buildSshRenamePathCommand(path: string, nextPath: string): string {
+  const scriptLines = [
+    'set -e',
+    `mv -- ${quoteForPosixShell(path)} ${quoteForPosixShell(nextPath)}`
+  ]
+
+  return `sh -lc ${quoteForPosixShell(scriptLines.join('\n'))}`
+}
+
 function runSshCommand(
   config: SshServerConfig,
   password: string | null,
@@ -724,6 +764,64 @@ function runSshCommand(
       }
     )
   })
+}
+
+function runScpCommand(
+  config: SshServerConfig,
+  password: string | null,
+  remotePath: string,
+  localPath: string,
+  isDirectory: boolean
+): Promise<void> {
+  const scpEnv = getSshCommandEnv(password, true)
+  const commandEnv = scpEnv ? { ...process.env, ...scpEnv } : process.env
+  const args = buildScpBaseArgs(config)
+
+  if (isDirectory) {
+    args.push('-r')
+  }
+
+  args.push(`${config.username}@${config.host}:${remotePath}`, localPath)
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      'scp',
+      args,
+      {
+        encoding: 'utf8',
+        env: commandEnv
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve()
+          return
+        }
+
+        const message = stderr.trim() || stdout.trim() || error.message
+        reject(new Error(message))
+      }
+    )
+  })
+}
+
+function getUniqueDownloadPath(path: string): string {
+  if (!existsSync(path)) {
+    return path
+  }
+
+  const parsedPath = parse(path)
+  const stem = parsedPath.ext === '' ? parsedPath.base : parsedPath.name
+  let suffix = 1
+
+  while (true) {
+    const candidatePath = join(parsedPath.dir, `${stem} (${suffix})${parsedPath.ext}`)
+
+    if (!existsSync(candidatePath)) {
+      return candidatePath
+    }
+
+    suffix += 1
+  }
 }
 
 function parseSshRemoteDirectoryListing(output: string): SshRemoteDirectoryListing {
@@ -1044,6 +1142,52 @@ async function listSshDirectory(
   return parseSshRemoteDirectoryListing(output)
 }
 
+async function deleteSshPath(configId: string, path: string, isDirectory: boolean): Promise<void> {
+  const config = sshServers.find((server) => server.id === configId)
+
+  if (!config) {
+    throw new Error('SSH server config not found.')
+  }
+
+  const password = config.authMethod === 'password' ? decryptSshPassword(config.password) : null
+  await runSshCommand(config, password, buildSshDeletePathCommand(path, isDirectory))
+}
+
+async function renameSshPath(configId: string, path: string, nextPath: string): Promise<void> {
+  const config = sshServers.find((server) => server.id === configId)
+
+  if (!config) {
+    throw new Error('SSH server config not found.')
+  }
+
+  const password = config.authMethod === 'password' ? decryptSshPassword(config.password) : null
+  await runSshCommand(config, password, buildSshRenamePathCommand(path, nextPath))
+}
+
+async function downloadSshPath(
+  configId: string,
+  path: string,
+  isDirectory: boolean
+): Promise<string> {
+  const config = sshServers.find((server) => server.id === configId)
+
+  if (!config) {
+    throw new Error('SSH server config not found.')
+  }
+
+  const password = config.authMethod === 'password' ? decryptSshPassword(config.password) : null
+  const downloadsPath = app.getPath('downloads')
+
+  mkdirSync(downloadsPath, { recursive: true })
+
+  const normalizedName = basename(path.replace(/\/+$/, '')) || 'download'
+  const targetPath = getUniqueDownloadPath(join(downloadsPath, normalizedName))
+
+  await runScpCommand(config, password, path, targetPath, isDirectory)
+
+  return targetPath
+}
+
 async function openFolderPath(path: string): Promise<void> {
   const normalizedPath = path.trim()
 
@@ -1227,8 +1371,23 @@ app.whenReady().then(() => {
   ipcMain.handle('ssh:delete-config', (event, configId: string) =>
     removeSshConfig(event.sender, configId)
   )
+  ipcMain.handle(
+    'ssh:delete-path',
+    (_event, payload: { configId: string; isDirectory: boolean; path: string }) =>
+      deleteSshPath(payload.configId, payload.path, payload.isDirectory)
+  )
+  ipcMain.handle(
+    'ssh:download-path',
+    (_event, payload: { configId: string; isDirectory: boolean; path: string }) =>
+      downloadSshPath(payload.configId, payload.path, payload.isDirectory)
+  )
   ipcMain.handle('ssh:list-directory', (_event, payload: { configId: string; path?: string }) =>
     listSshDirectory(payload.configId, payload.path)
+  )
+  ipcMain.handle(
+    'ssh:rename-path',
+    (_event, payload: { configId: string; nextPath: string; path: string }) =>
+      renameSshPath(payload.configId, payload.path, payload.nextPath)
   )
   ipcMain.handle('ssh:save-config', (event, payload: SshServerConfigSaveInput) =>
     submitSshConfig(event.sender, payload)
