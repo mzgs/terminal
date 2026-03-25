@@ -14,6 +14,7 @@ import { basename, dirname, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, type IPty } from 'node-pty'
 import icon from '../../resources/icon.png?asset'
+import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
 import type { SshServerConfig, SshServerConfigInput, SshServerConfigSaveInput } from '../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../shared/terminal'
 
@@ -37,7 +38,9 @@ interface TerminalSpawnResult {
 const terminals = new Map<number, TerminalSession>()
 const ownersWithCleanup = new Set<number>()
 let nextTerminalId = 1
+let persistedSession: SessionSnapshot | null = null
 let sshServers: SshServerConfig[] = []
+const sessionStoreFileName = 'terminal-session.json'
 const sshServersStoreFileName = 'ssh-servers.json'
 const sshPasswordEncryptionSecret = 'T3rm!nal_SSH#2026$Vaulfe35dt@91xZ'
 const sshPasswordEncryptionPrefix = 'enc-v1'
@@ -479,6 +482,10 @@ function getSshServersStorePath(): string {
   return join(app.getPath('userData'), sshServersStoreFileName)
 }
 
+function getSessionStorePath(): string {
+  return join(app.getPath('userData'), sessionStoreFileName)
+}
+
 function getSshAskpassHelperPath(): string {
   return join(
     app.getPath('userData'),
@@ -567,6 +574,152 @@ printf '%s\\n' "$TERMINAL_SSH_PASSWORD"
   }
 
   return helperPath
+}
+
+function parsePersistedRestorableTabState(value: unknown): RestorableTabState | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+
+  if (record.kind === 'local') {
+    if (record.cwd !== undefined && typeof record.cwd !== 'string') {
+      return null
+    }
+
+    const cwd =
+      typeof record.cwd === 'string' && record.cwd.trim() !== '' ? record.cwd.trim() : undefined
+
+    return cwd ? { cwd, kind: 'local' } : { kind: 'local' }
+  }
+
+  if (
+    record.kind === 'ssh' &&
+    typeof record.configId === 'string' &&
+    record.configId.trim() !== ''
+  ) {
+    return {
+      configId: record.configId.trim(),
+      kind: 'ssh'
+    }
+  }
+
+  return null
+}
+
+function parsePersistedSessionTab(
+  value: unknown,
+  seenTabIds: Set<string>
+): SessionTabSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+
+  if (id === '' || seenTabIds.has(id)) {
+    return null
+  }
+
+  if (typeof record.title !== 'string') {
+    return null
+  }
+
+  const restoreState = parsePersistedRestorableTabState(record.restoreState)
+
+  if (!restoreState) {
+    return null
+  }
+
+  seenTabIds.add(id)
+
+  return {
+    id,
+    restoreState,
+    title: record.title.trim() || '~'
+  }
+}
+
+function parsePersistedSessionSnapshot(value: unknown): SessionSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+
+  if (record.version !== undefined && record.version !== 1) {
+    return null
+  }
+
+  if (!Array.isArray(record.tabs)) {
+    return null
+  }
+
+  const seenTabIds = new Set<string>()
+  const tabs = record.tabs
+    .map((tab) => parsePersistedSessionTab(tab, seenTabIds))
+    .filter((tab): tab is SessionTabSnapshot => tab !== null)
+  const activeTabId =
+    typeof record.activeTabId === 'string' && tabs.some((tab) => tab.id === record.activeTabId)
+      ? record.activeTabId
+      : (tabs[0]?.id ?? null)
+
+  return {
+    activeTabId,
+    tabs,
+    version: 1
+  }
+}
+
+function persistSessionSnapshot(snapshot: SessionSnapshot): void {
+  try {
+    writeFileSync(getSessionStorePath(), JSON.stringify(snapshot, null, 2), 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to persist session: ${message}`)
+  }
+}
+
+function loadPersistedSession(): void {
+  const storePath = getSessionStorePath()
+
+  if (!existsSync(storePath)) {
+    persistedSession = null
+    return
+  }
+
+  try {
+    const rawValue = readFileSync(storePath, 'utf8')
+    const parsedValue = parsePersistedSessionSnapshot(JSON.parse(rawValue))
+
+    if (!parsedValue) {
+      console.warn(`Unexpected session store format in ${storePath}`)
+      persistedSession = null
+      return
+    }
+
+    persistedSession = parsedValue
+  } catch (error) {
+    console.warn(`Failed to load session from ${storePath}`, error)
+    persistedSession = null
+  }
+}
+
+function listPersistedSession(): SessionSnapshot | null {
+  return persistedSession
+}
+
+function saveSessionSnapshot(snapshot: SessionSnapshot): void {
+  const parsedSnapshot = parsePersistedSessionSnapshot(snapshot)
+
+  if (!parsedSnapshot) {
+    throw new Error('Invalid session snapshot.')
+  }
+
+  persistSessionSnapshot(parsedSnapshot)
+  persistedSession = parsedSnapshot
 }
 
 function persistSshServers(nextSshServers: SshServerConfig[]): void {
@@ -815,6 +968,7 @@ function removeSshConfig(webContents: WebContents, configId: string): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   ensureNodePtyHelpersExecutable()
+  loadPersistedSession()
   loadPersistedSshServers()
 
   // Set app user model id for windows
@@ -829,6 +983,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('terminal:create', (event, options?: TerminalCreateOptions) =>
     createTerminal(event.sender, options)
+  )
+  ipcMain.handle('session:load', () => listPersistedSession())
+  ipcMain.handle('session:save', (_event, snapshot: SessionSnapshot) =>
+    saveSessionSnapshot(snapshot)
   )
   ipcMain.on('terminal:write', (_event, payload: { terminalId: number; data: string }) => {
     terminals.get(payload.terminalId)?.process.write(payload.data)

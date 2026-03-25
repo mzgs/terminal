@@ -16,6 +16,7 @@ import {
 import { Reorder, useDragControls } from 'motion/react'
 import Modal from 'react-modal'
 import '@xterm/xterm/css/xterm.css'
+import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
 import type { SshAuthMethod, SshServerConfig, SshServerConfigInput } from '../../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../../shared/terminal'
 
@@ -23,6 +24,7 @@ type TabStatus = 'connecting' | 'ready' | 'closed'
 
 interface TabRecord {
   id: string
+  restoreState: RestorableTabState
   status: TabStatus
   terminalId: number | null
   title: string
@@ -41,6 +43,7 @@ interface TerminalRuntime {
 
 interface CreateTabOptions {
   createTerminal?: () => Promise<TerminalCreateResult>
+  restoreState?: RestorableTabState
   terminalCreateOptions?: TerminalCreateOptions
   title?: string
 }
@@ -112,6 +115,97 @@ const defaultSshConfigInput: SshServerConfigInput = {
   privateKeyPath: '',
   port: 22,
   username: 'root'
+}
+
+function cloneRestorableTabState(restoreState: RestorableTabState): RestorableTabState {
+  if (restoreState.kind === 'ssh') {
+    return {
+      configId: restoreState.configId,
+      kind: 'ssh'
+    }
+  }
+
+  return restoreState.cwd
+    ? {
+        cwd: restoreState.cwd,
+        kind: 'local'
+      }
+    : {
+        kind: 'local'
+      }
+}
+
+function getDefaultRestorableTabState(): RestorableTabState {
+  return { kind: 'local' }
+}
+
+function getRestorableTabs(tabs: TabRecord[]): SessionTabSnapshot[] {
+  return tabs
+    .filter((tab) => tab.status !== 'closed' && !tab.errorMessage)
+    .map((tab) => ({
+      id: tab.id,
+      restoreState: cloneRestorableTabState(tab.restoreState),
+      title: tab.title
+    }))
+}
+
+function createSessionSnapshot(tabs: TabRecord[], activeTabId: string | null): SessionSnapshot {
+  const restorableTabs = getRestorableTabs(tabs)
+  const nextActiveTabId = restorableTabs.some((tab) => tab.id === activeTabId)
+    ? activeTabId
+    : (restorableTabs[0]?.id ?? null)
+
+  return {
+    activeTabId: nextActiveTabId,
+    tabs: restorableTabs,
+    version: 1
+  }
+}
+
+function buildCreateTabOptionsFromSessionTab(tab: SessionTabSnapshot): CreateTabOptions {
+  if (tab.restoreState.kind === 'ssh') {
+    const { configId } = tab.restoreState
+
+    return {
+      createTerminal: () => window.api.ssh.connect(configId),
+      restoreState: cloneRestorableTabState(tab.restoreState)
+    }
+  }
+
+  return {
+    restoreState: cloneRestorableTabState(tab.restoreState),
+    terminalCreateOptions: tab.restoreState.cwd ? { cwd: tab.restoreState.cwd } : undefined
+  }
+}
+
+function createTabRecordFromSessionTab(tab: SessionTabSnapshot): TabRecord {
+  return {
+    id: tab.id,
+    restoreState: cloneRestorableTabState(tab.restoreState),
+    status: 'connecting',
+    terminalId: null,
+    title: tab.title
+  }
+}
+
+function getNextTabSequence(tabs: Array<Pick<SessionTabSnapshot, 'id'>>): number {
+  let nextSequence = 1
+
+  for (const tab of tabs) {
+    const match = /^tab-(\d+)$/.exec(tab.id)
+
+    if (!match) {
+      continue
+    }
+
+    const sequenceNumber = Number(match[1])
+
+    if (Number.isSafeInteger(sequenceNumber)) {
+      nextSequence = Math.max(nextSequence, sequenceNumber + 1)
+    }
+  }
+
+  return nextSequence
 }
 
 function usesWindowsShellQuoting(): boolean {
@@ -852,6 +946,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
 }
 
 function TerminalApp(): React.JSX.Element {
+  const [isSessionHydrated, setIsSessionHydrated] = useState(false)
   const [tabs, setTabs] = useState<TabRecord[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -879,6 +974,7 @@ function TerminalApp(): React.JSX.Element {
   const terminalToTabRef = useRef(new Map<number, string>())
   const pendingTitlesRef = useRef(new Map<number, string>())
   const pendingInitialTabStateRef = useRef(new Map<string, CreateTabOptions>())
+  const initialSessionSnapshotRef = useRef<SessionSnapshot | null | undefined>(undefined)
   const isUnmountingRef = useRef(false)
   const emptyStateCreateQueuedRef = useRef(false)
   const pendingActivationTabIdRef = useRef<string | null>(null)
@@ -1189,10 +1285,14 @@ function TerminalApp(): React.JSX.Element {
     const shouldActivateImmediately =
       activeTabIdRef.current === null || tabsRef.current.length === 0
     const nextTitle = options?.title?.trim() || defaultTabTitle
+    const restoreState = cloneRestorableTabState(
+      options?.restoreState ?? getDefaultRestorableTabState()
+    )
 
     if (options?.createTerminal || options?.terminalCreateOptions || options?.title) {
       pendingInitialTabStateRef.current.set(tabId, {
         createTerminal: options.createTerminal,
+        restoreState,
         terminalCreateOptions: options.terminalCreateOptions,
         title: options.title?.trim()
       })
@@ -1202,6 +1302,7 @@ function TerminalApp(): React.JSX.Element {
       ...currentTabs,
       {
         id: tabId,
+        restoreState,
         status: 'connecting',
         terminalId: null,
         title: nextTitle
@@ -1414,13 +1515,95 @@ function TerminalApp(): React.JSX.Element {
   }, [searchQuery])
 
   useEffect(() => {
+    let didCancel = false
+
+    void window.api.session
+      .load()
+      .then((snapshot) => {
+        if (didCancel) {
+          return
+        }
+
+        initialSessionSnapshotRef.current = snapshot
+
+        if (!snapshot || snapshot.tabs.length === 0) {
+          setIsSessionHydrated(true)
+          return
+        }
+
+        const pendingInitialTabState = pendingInitialTabStateRef.current
+
+        for (const tab of snapshot.tabs) {
+          pendingInitialTabState.set(tab.id, buildCreateTabOptionsFromSessionTab(tab))
+        }
+
+        nextTabIdRef.current = getNextTabSequence(snapshot.tabs)
+        setTabs(snapshot.tabs.map((tab) => createTabRecordFromSessionTab(tab)))
+        setActiveTabId(snapshot.activeTabId ?? snapshot.tabs[0]?.id ?? null)
+      })
+      .catch((error) => {
+        console.error('Unable to load the previous terminal session.', error)
+
+        if (!didCancel) {
+          initialSessionSnapshotRef.current = null
+          setIsSessionHydrated(true)
+        }
+      })
+
+    return () => {
+      didCancel = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isSessionHydrated) {
+      return
+    }
+
+    const initialSessionSnapshot = initialSessionSnapshotRef.current
+
+    if (!initialSessionSnapshot || initialSessionSnapshot.tabs.length === 0) {
+      return
+    }
+
+    if (tabs.length !== initialSessionSnapshot.tabs.length) {
+      return
+    }
+
+    const didRestoreExpectedTabs = initialSessionSnapshot.tabs.every(
+      (tab, index) => tabs[index]?.id === tab.id
+    )
+
+    if (!didRestoreExpectedTabs) {
+      return
+    }
+
+    setIsSessionHydrated(true)
+  }, [isSessionHydrated, tabs])
+
+  useEffect(() => {
+    if (!isSessionHydrated) {
+      return
+    }
+
+    void window.api.session.save(createSessionSnapshot(tabs, activeTabId)).catch((error) => {
+      console.error('Unable to persist the current terminal session.', error)
+    })
+  }, [activeTabId, isSessionHydrated, tabs])
+
+  useEffect(() => {
     isUnmountingRef.current = false
 
-    if (tabs.length === 0 && !isUnmountingRef.current && !emptyStateCreateQueuedRef.current) {
+    if (
+      isSessionHydrated &&
+      tabs.length === 0 &&
+      !isUnmountingRef.current &&
+      !emptyStateCreateQueuedRef.current
+    ) {
       emptyStateCreateQueuedRef.current = true
       createTab()
     }
-  }, [createTab, tabs.length])
+  }, [createTab, isSessionHydrated, tabs.length])
 
   useEffect(() => {
     const workspaceElement = workspaceRef.current
@@ -1510,12 +1693,21 @@ function TerminalApp(): React.JSX.Element {
       }
 
       updateTab(tabId, (tab) => {
-        if (tab.title === event.title) {
+        const nextRestoreState =
+          tab.restoreState.kind === 'local' && tab.restoreState.cwd !== event.cwd
+            ? {
+                cwd: event.cwd,
+                kind: 'local' as const
+              }
+            : tab.restoreState
+
+        if (tab.title === event.title && nextRestoreState === tab.restoreState) {
           return tab
         }
 
         return {
           ...tab,
+          restoreState: nextRestoreState,
           title: event.title
         }
       })
@@ -1804,6 +1996,10 @@ function TerminalApp(): React.JSX.Element {
       setIsSshMenuOpen(false)
       createTab({
         createTerminal: () => window.api.ssh.connect(server.id),
+        restoreState: {
+          configId: server.id,
+          kind: 'ssh'
+        },
         title: server.name
       })
     },
