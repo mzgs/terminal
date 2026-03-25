@@ -2999,7 +2999,7 @@ function TerminalApp(): React.JSX.Element {
 
       const menuPadding = 12
       const menuWidth = 296
-      const menuHeight = 272
+      const menuHeight = 320
       const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
@@ -3093,6 +3093,30 @@ function TerminalApp(): React.JSX.Element {
     runtime.terminal.selectAll()
     closeTerminalContextMenu()
   }, [closeTerminalContextMenu, terminalContextMenu])
+
+  const handleClearTerminalContent = useCallback((): void => {
+    const currentMenu = terminalContextMenu
+
+    if (!currentMenu) {
+      return
+    }
+
+    const runtime = runtimesRef.current.get(currentMenu.tabId)
+
+    if (!runtime || runtime.disposed) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    runtime.terminal.focus()
+    runtime.terminal.clear()
+
+    if (activeTabIdRef.current === currentMenu.tabId && isSearchOpenRef.current) {
+      queueSearchRefresh(currentMenu.tabId, 0)
+    }
+
+    closeTerminalContextMenu()
+  }, [closeTerminalContextMenu, queueSearchRefresh, terminalContextMenu])
 
   const handleDeleteSshBrowserEntry = useCallback(
     (browserState: SshBrowserState, entry: SshRemoteDirectoryEntry): void => {
@@ -3749,6 +3773,17 @@ function TerminalApp(): React.JSX.Element {
                 <TextSelect aria-hidden="true" className="terminal-context-menu-icon" />
               </span>
               <span className="terminal-context-menu-label">Select All</span>
+            </button>
+            <button
+              className="terminal-context-menu-item"
+              onClick={handleClearTerminalContent}
+              role="menuitem"
+              type="button"
+            >
+              <span className="terminal-context-menu-item-icon-shell">
+                <X aria-hidden="true" className="terminal-context-menu-icon" />
+              </span>
+              <span className="terminal-context-menu-label">Clear</span>
             </button>
           </div>
         ) : null}
