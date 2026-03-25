@@ -76,6 +76,7 @@ const session: SessionApi = {
 }
 
 const shell: ShellApi = {
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   openPath: (path) => ipcRenderer.invoke('shell:open-path', path)
 }
 

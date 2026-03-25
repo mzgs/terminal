@@ -102,7 +102,7 @@ interface SshBrowserContextMenuState {
 }
 
 interface TerminalContextMenuState {
-  hasSelection: boolean
+  selectionText: string
   tabId: string
   x: number
   y: number
@@ -2919,14 +2919,16 @@ function TerminalApp(): React.JSX.Element {
       event.preventDefault()
       event.stopPropagation()
 
+      const selectionText = runtime.terminal.getSelection()
+
       const menuPadding = 12
       const menuWidth = 296
-      const menuHeight = 220
+      const menuHeight = 272
       const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
       setTerminalContextMenu({
-        hasSelection: runtime.terminal.hasSelection(),
+        selectionText,
         tabId,
         x: Math.min(Math.max(event.clientX, menuPadding), maxX),
         y: Math.min(Math.max(event.clientY, menuPadding), maxY)
@@ -2951,6 +2953,30 @@ function TerminalApp(): React.JSX.Element {
 
     window.api.clipboard.writeText(runtime.terminal.getSelection())
     runtime.terminal.focus()
+    closeTerminalContextMenu()
+  }, [closeTerminalContextMenu, terminalContextMenu])
+
+  const handleSearchTerminalSelectionWithGoogle = useCallback((): void => {
+    const currentMenu = terminalContextMenu
+
+    if (!currentMenu) {
+      return
+    }
+
+    const runtime = runtimesRef.current.get(currentMenu.tabId)
+    const selectionText = currentMenu.selectionText.trim()
+
+    if (!runtime || runtime.disposed || selectionText === '') {
+      closeTerminalContextMenu()
+      return
+    }
+
+    runtime.terminal.focus()
+    void window.api.shell
+      .openExternal(`https://www.google.com/search?q=${encodeURIComponent(selectionText)}`)
+      .catch((error) => {
+        console.error('Unable to open Google search.', error)
+      })
     closeTerminalContextMenu()
   }, [closeTerminalContextMenu, terminalContextMenu])
 
@@ -3603,7 +3629,20 @@ function TerminalApp(): React.JSX.Element {
           >
             <button
               className="terminal-context-menu-item"
-              disabled={!terminalContextMenu.hasSelection}
+              disabled={terminalContextMenu.selectionText.trim() === ''}
+              onClick={handleSearchTerminalSelectionWithGoogle}
+              role="menuitem"
+              type="button"
+            >
+              <span className="terminal-context-menu-item-icon-shell">
+                <Search aria-hidden="true" className="terminal-context-menu-icon" />
+              </span>
+              <span className="terminal-context-menu-label">Search with Google</span>
+            </button>
+            <div aria-hidden="true" className="terminal-context-menu-divider" />
+            <button
+              className="terminal-context-menu-item"
+              disabled={terminalContextMenu.selectionText.trim() === ''}
               onClick={handleCopyTerminalSelection}
               role="menuitem"
               type="button"

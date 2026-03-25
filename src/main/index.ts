@@ -1525,6 +1525,16 @@ async function openFolderPath(path: string): Promise<void> {
   }
 }
 
+async function openExternalUrl(url: string): Promise<void> {
+  const normalizedUrl = url.trim()
+
+  if (normalizedUrl === '') {
+    throw new Error('URL is required.')
+  }
+
+  await shell.openExternal(normalizedUrl)
+}
+
 function loadRendererWindow(window: BrowserWindow): Promise<void> {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     return window.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -1668,6 +1678,7 @@ app.whenReady().then(() => {
   ipcMain.handle('terminal:create', (event, options?: TerminalCreateOptions) =>
     createTerminal(event.sender, options)
   )
+  ipcMain.handle('shell:open-external', (_event, url: string) => openExternalUrl(url))
   ipcMain.handle('shell:open-path', (_event, path: string) => openFolderPath(path))
   ipcMain.handle('session:load', () => listPersistedSession())
   ipcMain.handle('session:save', (_event, snapshot: SessionSnapshot) =>

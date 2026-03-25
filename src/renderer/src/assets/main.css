@@ -688,6 +688,12 @@ body {
   background: transparent;
 }
 
+.terminal-context-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .terminal-context-menu-item-icon-shell {
   display: grid;
   place-items: center;
