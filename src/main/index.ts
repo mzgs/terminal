@@ -766,8 +766,8 @@ function loadRendererWindow(window: BrowserWindow): Promise<void> {
 function createMainWindow(): BrowserWindow {
   const nextMainWindow = new BrowserWindow({
     title: 'Terminal',
-    width: 1180,
-    height: 760,
+    width: 1000,
+    height: 600,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#000000',
