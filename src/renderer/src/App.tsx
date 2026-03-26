@@ -108,6 +108,7 @@ interface SshBrowserContextMenuState {
 
 interface TerminalContextMenuState {
   quickDownloadAction: TerminalQuickDownloadAction | null
+  quickExtractAction: TerminalQuickExtractAction | null
   selectionText: string
   tabId: string
   x: number
@@ -118,6 +119,10 @@ interface TerminalQuickDownloadAction {
   configId: string
   fileName: string
   remotePath: string
+}
+
+interface TerminalQuickExtractAction {
+  command: string
 }
 
 interface SshBrowserFileIconDescriptor {
@@ -149,6 +154,20 @@ const sshBrowserArchiveFileIconDescriptor: SshBrowserFileIconDescriptor = {
   icon: FileArchive,
   toneClassName: 'ssh-browser-entry-icon-archive'
 }
+const terminalExtractableArchiveSuffixes = [
+  '.tar.gz',
+  '.tar.bz2',
+  '.tar.xz',
+  '.tgz',
+  '.tbz2',
+  '.txz',
+  '.targz',
+  '.zip',
+  '.tar',
+  '.gz',
+  '.bz2',
+  '.xz'
+] as const
 const sshBrowserCodeFileIconDescriptor: SshBrowserFileIconDescriptor = {
   icon: FileCode,
   toneClassName: 'ssh-browser-entry-icon-code'
@@ -520,16 +539,22 @@ function getPathsFromUriList(dataTransfer: DataTransfer): string[] {
     .filter((value): value is string => Boolean(value))
 }
 
-function quoteArgumentForShell(value: string): string {
-  if (usesWindowsShellQuoting()) {
+function quoteArgumentForShell(
+  value: string,
+  useWindowsQuoting: boolean = usesWindowsShellQuoting()
+): string {
+  if (useWindowsQuoting) {
     return /[\s&()[\]{}^=;!'+,`~]/.test(value) ? `"${value}"` : value
   }
 
-  return value.replace(/([^A-Za-z0-9_./-])/g, '\\$1')
+  return value.replace(/([^A-Za-z0-9_./~:-])/g, '\\$1')
 }
 
-function quotePathForShell(path: string): string {
-  return quoteArgumentForShell(path)
+function quotePathForShell(
+  path: string,
+  useWindowsQuoting: boolean = usesWindowsShellQuoting()
+): string {
+  return quoteArgumentForShell(path, useWindowsQuoting)
 }
 
 function stripSshRemoteCwdSequences(
@@ -616,6 +641,94 @@ function normalizeTerminalSelectionForRemotePath(selectionText: string): string 
   }
 
   return normalizedSelection
+}
+
+function normalizeTerminalSelectionForArchivePath(selectionText: string): string | null {
+  const normalizedSelection = unwrapBalancedQuotes(selectionText.replace(/\r/g, '').trim())
+
+  if (
+    normalizedSelection === '' ||
+    normalizedSelection === '.' ||
+    normalizedSelection === '..' ||
+    normalizedSelection.endsWith('/') ||
+    normalizedSelection.endsWith('\\') ||
+    normalizedSelection.includes('\n')
+  ) {
+    return null
+  }
+
+  return normalizedSelection
+}
+
+function buildTerminalExtractArchiveCommand(
+  archiveSelection: string,
+  suffix: (typeof terminalExtractableArchiveSuffixes)[number],
+  useWindowsShellQuoting: boolean
+): string {
+  const quotedArchiveSelection = quotePathForShell(archiveSelection, useWindowsShellQuoting)
+
+  if (suffix === '.zip') {
+    return useWindowsShellQuoting
+      ? `tar -xf ${quotedArchiveSelection}`
+      : `unzip ${quotedArchiveSelection}`
+  }
+
+  if (
+    suffix === '.tar' ||
+    suffix === '.tar.gz' ||
+    suffix === '.tar.bz2' ||
+    suffix === '.tar.xz' ||
+    suffix === '.tgz' ||
+    suffix === '.tbz2' ||
+    suffix === '.txz' ||
+    suffix === '.targz'
+  ) {
+    return `tar -xf ${quotedArchiveSelection}`
+  }
+
+  if (suffix === '.gz') {
+    return `gzip -dk ${quotedArchiveSelection}`
+  }
+
+  if (suffix === '.bz2') {
+    return `bzip2 -dk ${quotedArchiveSelection}`
+  }
+
+  if (suffix === '.xz') {
+    return `xz -dk ${quotedArchiveSelection}`
+  }
+
+  return `tar -xf ${quotedArchiveSelection}`
+}
+
+function getTerminalQuickExtractAction(
+  tab: TabRecord,
+  selectionText: string
+): TerminalQuickExtractAction | null {
+  const archivePath = normalizeTerminalSelectionForArchivePath(selectionText)
+
+  if (!archivePath) {
+    return null
+  }
+
+  const normalizedSelection = archivePath.toLowerCase()
+  const suffix = terminalExtractableArchiveSuffixes.find((candidateSuffix) =>
+    normalizedSelection.endsWith(candidateSuffix)
+  )
+
+  if (!suffix) {
+    return null
+  }
+
+  const command = buildTerminalExtractArchiveCommand(
+    archivePath,
+    suffix,
+    tab.restoreState.kind === 'local' && usesWindowsShellQuoting()
+  )
+
+  return {
+    command
+  }
 }
 
 function normalizeRemotePath(path: string): string {
@@ -3144,15 +3257,19 @@ function TerminalApp(): React.JSX.Element {
       const selectionText = runtime.terminal.getSelection()
       const tab = tabsRef.current.find((currentTab) => currentTab.id === tabId)
       const quickDownloadAction = tab ? getTerminalQuickDownloadAction(tab, selectionText) : null
+      const quickExtractAction = tab ? getTerminalQuickExtractAction(tab, selectionText) : null
+      const quickActionCount =
+        Number(Boolean(quickDownloadAction)) + Number(Boolean(quickExtractAction))
 
       const menuPadding = 12
       const menuWidth = 296
-      const menuHeight = 320
+      const menuHeight = 320 + quickActionCount * 44
       const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
       setTerminalContextMenu({
         quickDownloadAction,
+        quickExtractAction,
         selectionText,
         tabId,
         x: Math.min(Math.max(event.clientX, menuPadding), maxX),
@@ -3228,6 +3345,27 @@ function TerminalApp(): React.JSX.Element {
       console.error('Unable to download selected remote file.', error)
     })
 
+    closeTerminalContextMenu()
+  }, [closeTerminalContextMenu, terminalContextMenu])
+
+  const handleExtractTerminalSelection = useCallback((): void => {
+    const currentMenu = terminalContextMenu
+
+    if (!currentMenu?.quickExtractAction) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    const runtime = runtimesRef.current.get(currentMenu.tabId)
+
+    if (!runtime || runtime.closed || runtime.disposed || runtime.terminalId === null) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    runtime.terminal.clearSelection()
+    runtime.terminal.focus()
+    runtime.terminal.input(`${currentMenu.quickExtractAction.command}\r`)
     closeTerminalContextMenu()
   }, [closeTerminalContextMenu, terminalContextMenu])
 
@@ -3979,20 +4117,36 @@ function TerminalApp(): React.JSX.Element {
               top: terminalContextMenu.y
             }}
           >
-            {terminalContextMenu.quickDownloadAction ? (
+            {terminalContextMenu.quickDownloadAction || terminalContextMenu.quickExtractAction ? (
               <>
-                <button
-                  className="terminal-context-menu-item"
-                  onClick={handleDownloadTerminalSelection}
-                  role="menuitem"
-                  title="Download"
-                  type="button"
-                >
-                  <span className="terminal-context-menu-item-icon-shell">
-                    <Download aria-hidden="true" className="terminal-context-menu-icon" />
-                  </span>
-                  <span className="terminal-context-menu-label">Download</span>
-                </button>
+                {terminalContextMenu.quickDownloadAction ? (
+                  <button
+                    className="terminal-context-menu-item"
+                    onClick={handleDownloadTerminalSelection}
+                    role="menuitem"
+                    title="Download"
+                    type="button"
+                  >
+                    <span className="terminal-context-menu-item-icon-shell">
+                      <Download aria-hidden="true" className="terminal-context-menu-icon" />
+                    </span>
+                    <span className="terminal-context-menu-label">Download</span>
+                  </button>
+                ) : null}
+                {terminalContextMenu.quickExtractAction ? (
+                  <button
+                    className="terminal-context-menu-item"
+                    onClick={handleExtractTerminalSelection}
+                    role="menuitem"
+                    title="Extract here"
+                    type="button"
+                  >
+                    <span className="terminal-context-menu-item-icon-shell">
+                      <FileArchive aria-hidden="true" className="terminal-context-menu-icon" />
+                    </span>
+                    <span className="terminal-context-menu-label">Extract Here</span>
+                  </button>
+                ) : null}
                 <div aria-hidden="true" className="terminal-context-menu-divider" />
               </>
             ) : null}
