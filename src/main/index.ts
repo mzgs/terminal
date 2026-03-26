@@ -19,15 +19,16 @@ import SftpClient from 'ssh2-sftp-client'
 import type { ConnectConfig } from 'ssh2'
 import icon from '../../resources/icon.png?asset'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
-import type {
-  SshDownloadProgressEvent,
-  SshRemoteDirectoryEntry,
-  SshRemoteDirectoryListing,
-  SshServerConfig,
-  SshServerConfigInput,
-  SshServerConfigSaveInput,
-  SshTransferProgressStatus,
-  SshUploadProgressEvent
+import {
+  normalizeSshServerIcon,
+  type SshDownloadProgressEvent,
+  type SshRemoteDirectoryEntry,
+  type SshRemoteDirectoryListing,
+  type SshServerConfig,
+  type SshServerConfigInput,
+  type SshServerConfigSaveInput,
+  type SshTransferProgressStatus,
+  type SshUploadProgressEvent
 } from '../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../shared/terminal'
 
@@ -505,6 +506,7 @@ function parsePersistedSshServerConfig(value: unknown): SshServerConfig | null {
     authMethod: record.authMethod,
     description: record.description.trim(),
     host: record.host.trim(),
+    icon: normalizeSshServerIcon(record.icon),
     name: record.name.trim(),
     password: typeof record.password === 'string' ? record.password : '',
     privateKeyPath: typeof record.privateKeyPath === 'string' ? record.privateKeyPath.trim() : '',
@@ -1782,6 +1784,7 @@ function normalizeSshConfigInput(config: SshServerConfigInput): SshServerConfigI
     authMethod: config.authMethod,
     description: config.description.trim(),
     host: config.host.trim(),
+    icon: normalizeSshServerIcon(config.icon),
     name: config.name.trim(),
     password: config.password,
     privateKeyPath: config.authMethod === 'privateKey' ? config.privateKeyPath.trim() : '',

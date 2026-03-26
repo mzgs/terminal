@@ -1,6 +1,12 @@
 import type { TerminalCreateResult } from './terminal'
 
 export type SshAuthMethod = 'privateKey' | 'password'
+export type SshServerIcon = string
+export const defaultSshServerIcon: SshServerIcon = 'linux'
+
+export function normalizeSshServerIcon(value: unknown): SshServerIcon {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : defaultSshServerIcon
+}
 
 export interface SshRemoteDirectoryEntry {
   isDirectory: boolean
@@ -16,6 +22,7 @@ export interface SshServerConfigInput {
   authMethod: SshAuthMethod
   description: string
   host: string
+  icon: SshServerIcon
   name: string
   password: string
   privateKeyPath: string

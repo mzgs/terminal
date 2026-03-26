@@ -33,13 +33,15 @@ import { Reorder, useDragControls } from 'motion/react'
 import Modal from 'react-modal'
 import '@xterm/xterm/css/xterm.css'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
-import type {
-  SshAuthMethod,
-  SshDownloadProgressEvent,
-  SshRemoteDirectoryEntry,
-  SshServerConfig,
-  SshServerConfigInput,
-  SshUploadProgressEvent
+import {
+  defaultSshServerIcon,
+  type SshAuthMethod,
+  type SshDownloadProgressEvent,
+  type SshRemoteDirectoryEntry,
+  type SshServerIcon,
+  type SshServerConfig,
+  type SshServerConfigInput,
+  type SshUploadProgressEvent
 } from '../../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../../shared/terminal'
 
@@ -129,6 +131,12 @@ interface TerminalQuickExtractAction {
 interface SshBrowserFileIconDescriptor {
   icon: LucideIcon
   toneClassName: string
+}
+
+interface SshServerIconOption {
+  label: string
+  src: string
+  value: SshServerIcon
 }
 
 const defaultTabTitle = '~'
@@ -325,6 +333,73 @@ const searchTerminalTheme = {
   selectionForeground: '#171102',
   selectionInactiveBackground: '#ffd84a'
 } satisfies ITheme
+const sshServerIconLabelOverrides: Record<string, string> = {
+  cloudflare: 'Cloudflare',
+  coolify: 'Coolify',
+  debian: 'Debian',
+  digitalocean: 'DigitalOcean',
+  docker: 'Docker',
+  linux: 'Linux',
+  nginx: 'Nginx',
+  portainer: 'Portainer',
+  postgresql: 'PostgreSQL',
+  proxmox: 'Proxmox',
+  redis: 'Redis',
+  ubuntu: 'Ubuntu'
+}
+const sshServerIconModules = import.meta.glob('./assets/ssh-icons/*.svg', {
+  eager: true,
+  import: 'default'
+}) as Record<string, string>
+
+function getSshServerIconValueFromModulePath(modulePath: string): SshServerIcon | null {
+  const match = /\/([^/]+)\.svg$/i.exec(modulePath)
+  return match?.[1] ?? null
+}
+
+function formatSshServerIconLabel(value: SshServerIcon): string {
+  const overrideLabel = sshServerIconLabelOverrides[value]
+
+  if (overrideLabel) {
+    return overrideLabel
+  }
+
+  return value
+    .split(/[-_]+/)
+    .filter((segment) => segment !== '')
+    .map((segment) => {
+      if (segment.length <= 3) {
+        return segment.toUpperCase()
+      }
+
+      return `${segment[0]?.toUpperCase() ?? ''}${segment.slice(1)}`
+    })
+    .join(' ')
+}
+
+const sshServerIconOptions = Object.entries(sshServerIconModules)
+  .map(([modulePath, src]) => {
+    const value = getSshServerIconValueFromModulePath(modulePath)
+
+    if (!value) {
+      return null
+    }
+
+    return {
+      label: formatSshServerIconLabel(value),
+      src,
+      value
+    }
+  })
+  .filter((option): option is SshServerIconOption => option !== null)
+  .sort((leftOption, rightOption) => leftOption.label.localeCompare(rightOption.label))
+const sshServerIconOptionsByValue = new Map(
+  sshServerIconOptions.map((option) => [option.value, option])
+)
+const fallbackSshServerIconOption =
+  sshServerIconOptionsByValue.get(defaultSshServerIcon) ?? sshServerIconOptions[0] ?? null
+const defaultRendererSshServerIcon = fallbackSshServerIconOption?.value ?? defaultSshServerIcon
+const fallbackSshServerIconSrc = fallbackSshServerIconOption?.src ?? null
 
 const terminalOptions = {
   allowTransparency: true,
@@ -343,6 +418,7 @@ const defaultSshConfigInput: SshServerConfigInput = {
   authMethod: 'privateKey',
   description: '',
   host: '',
+  icon: defaultRendererSshServerIcon,
   name: '',
   password: '',
   privateKeyPath: '',
@@ -1158,12 +1234,41 @@ function createSshConfigFormState(
     authMethod: serverConfig.authMethod,
     description: serverConfig.description,
     host: serverConfig.host,
+    icon: sshServerIconOptionsByValue.has(serverConfig.icon)
+      ? serverConfig.icon
+      : defaultRendererSshServerIcon,
     name: serverConfig.name,
     password: '',
     privateKeyPath: serverConfig.privateKeyPath,
     port: serverConfig.port,
     username: serverConfig.username
   }
+}
+
+interface SshServerIconGlyphProps {
+  className?: string
+  icon?: SshServerIcon | null
+}
+
+function getSshServerIconSrc(icon: SshServerIcon | null | undefined): string {
+  return (
+    sshServerIconOptionsByValue.get(icon ?? defaultRendererSshServerIcon)?.src ??
+    fallbackSshServerIconSrc ??
+    ''
+  )
+}
+
+function SshServerIconGlyph({
+  className = 'tab-action-icon',
+  icon = defaultRendererSshServerIcon
+}: SshServerIconGlyphProps): React.JSX.Element {
+  const iconSrc = getSshServerIconSrc(icon)
+
+  return iconSrc ? (
+    <img alt="" aria-hidden="true" className={className} draggable={false} src={iconSrc} />
+  ) : (
+    <Server aria-hidden="true" className={className} />
+  )
 }
 
 interface SshConfigDialogProps {
@@ -1361,6 +1466,36 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
             value={formState.name}
           />
         </label>
+        <div className="ssh-field">
+          <span className="ssh-field-label">Icon</span>
+          <div aria-label="SSH server icon" className="ssh-icon-picker" role="radiogroup">
+            {sshServerIconOptions.map((option) => {
+              const isSelected = formState.icon === option.value
+
+              return (
+                <button
+                  key={option.value}
+                  aria-checked={isSelected}
+                  className={`ssh-icon-option${isSelected ? ' is-active' : ''}`}
+                  disabled={isBusy}
+                  onClick={() => updateField('icon', option.value)}
+                  role="radio"
+                  title={option.label}
+                  type="button"
+                >
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="ssh-icon-option-glyph"
+                    draggable={false}
+                    src={option.src}
+                  />
+                  <span className="ssh-icon-option-label">{option.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <div className="ssh-config-grid">
           <label className="ssh-field">
             <span className="ssh-field-label">Host</span>
@@ -4179,9 +4314,17 @@ function TerminalApp(): React.JSX.Element {
                           role="menuitem"
                           type="button"
                         >
-                          <span className="tab-action-menu-saved-label">{server.name}</span>
-                          <span className="tab-action-menu-saved-meta">
-                            {formatSshTarget(server)}
+                          <span aria-hidden="true" className="tab-action-menu-saved-icon-shell">
+                            <SshServerIconGlyph
+                              className="tab-action-menu-saved-icon"
+                              icon={server.icon}
+                            />
+                          </span>
+                          <span className="tab-action-menu-saved-copy">
+                            <span className="tab-action-menu-saved-label">{server.name}</span>
+                            <span className="tab-action-menu-saved-meta">
+                              {formatSshTarget(server)}
+                            </span>
                           </span>
                         </button>
                         <button
