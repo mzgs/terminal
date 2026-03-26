@@ -75,6 +75,11 @@ interface CreateTabOptions {
   title?: string
 }
 
+interface PendingTerminalState {
+  cwd: string
+  title: string
+}
+
 interface SearchMatch {
   col: number
   row: number
@@ -1892,7 +1897,7 @@ function TerminalApp(): React.JSX.Element {
   const sshUploadHideTimeoutRef = useRef<number | null>(null)
   const sshCwdSequenceBuffersRef = useRef(new Map<number, string>())
   const terminalToTabRef = useRef(new Map<number, string>())
-  const pendingTitlesRef = useRef(new Map<number, string>())
+  const pendingTerminalStateRef = useRef(new Map<number, PendingTerminalState>())
   const pendingInitialTabStateRef = useRef(new Map<string, CreateTabOptions>())
   const initialSessionSnapshotRef = useRef<SessionSnapshot | null | undefined>(undefined)
   const isUnmountingRef = useRef(false)
@@ -2404,17 +2409,29 @@ function TerminalApp(): React.JSX.Element {
       currentRuntime.terminalId = terminalId
       currentRuntime.terminal.options.disableStdin = false
       terminalToTabRef.current.set(terminalId, tabId)
+      const pendingTerminalState = pendingTerminalStateRef.current.get(terminalId)
+      pendingTerminalStateRef.current.delete(terminalId)
 
-      updateTab(tabId, (tab) => ({
-        ...tab,
-        errorMessage: undefined,
-        exitCode: undefined,
-        reconnectAttempt: undefined,
-        status: 'ready',
-        terminalId,
-        title: preferredTitle ?? pendingTitlesRef.current.get(terminalId) ?? title
-      }))
-      pendingTitlesRef.current.delete(terminalId)
+      updateTab(tabId, (tab) => {
+        const nextRestoreState =
+          pendingTerminalState && tab.restoreState.kind === 'local'
+            ? {
+                cwd: pendingTerminalState.cwd,
+                kind: 'local' as const
+              }
+            : tab.restoreState
+
+        return {
+          ...tab,
+          errorMessage: undefined,
+          exitCode: undefined,
+          reconnectAttempt: undefined,
+          restoreState: nextRestoreState,
+          status: 'ready',
+          terminalId,
+          title: preferredTitle ?? pendingTerminalState?.title ?? title
+        }
+      })
 
       if (shouldActivatePendingTab && pendingActivationTabIdRef.current === tabId) {
         pendingActivationTabIdRef.current = null
@@ -2556,7 +2573,7 @@ function TerminalApp(): React.JSX.Element {
 
     if (runtime.terminalId !== null) {
       terminalToTabRef.current.delete(runtime.terminalId)
-      pendingTitlesRef.current.delete(runtime.terminalId)
+      pendingTerminalStateRef.current.delete(runtime.terminalId)
       sshCwdSequenceBuffersRef.current.delete(runtime.terminalId)
 
       if (shouldKill && !runtime.closed) {
@@ -3019,7 +3036,7 @@ function TerminalApp(): React.JSX.Element {
       const runtime = runtimesRef.current.get(tabId)
 
       terminalToTabRef.current.delete(event.terminalId)
-      pendingTitlesRef.current.delete(event.terminalId)
+      pendingTerminalStateRef.current.delete(event.terminalId)
       sshCwdSequenceBuffersRef.current.delete(event.terminalId)
 
       if (!runtime || runtime.disposed) {
@@ -3061,7 +3078,10 @@ function TerminalApp(): React.JSX.Element {
       const tabId = terminalToTabRef.current.get(event.terminalId)
 
       if (!tabId) {
-        pendingTitlesRef.current.set(event.terminalId, event.title)
+        pendingTerminalStateRef.current.set(event.terminalId, {
+          cwd: event.cwd,
+          title: event.title
+        })
         return
       }
 
