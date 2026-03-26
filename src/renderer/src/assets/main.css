@@ -93,8 +93,14 @@ body {
   overflow-y: hidden;
   padding: 6px 0;
   overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
   pointer-events: auto;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .tab-strip-fill {
