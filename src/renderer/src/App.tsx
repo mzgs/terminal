@@ -48,6 +48,7 @@ type TabStatus = 'connecting' | 'ready' | 'closed'
 interface TabRecord {
   id: string
   outputLines?: string[]
+  reconnectAttempt?: number
   restoreState: RestorableTabState
   status: TabStatus
   terminalId: number | null
@@ -864,6 +865,10 @@ function getSshBrowserFileIconDescriptor(fileName: string): SshBrowserFileIconDe
 
 function getTabStatusLabel(tab: TabRecord): string {
   if (tab.status === 'connecting') {
+    if (tab.restoreState.kind === 'ssh' && typeof tab.reconnectAttempt === 'number') {
+      return 'Reconnecting'
+    }
+
     return 'Starting'
   }
 
@@ -871,13 +876,8 @@ function getTabStatusLabel(tab: TabRecord): string {
     return 'Failed'
   }
 
-  if (tab.status === 'closed') {
-    return `Exited${typeof tab.exitCode === 'number' ? ` (${tab.exitCode})` : ''}`
-  }
-
   return ''
 }
-
 function isEditableElement(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false
@@ -1050,7 +1050,7 @@ interface ReorderableTabProps {
   closeTab: (tabId: string) => void
   index: number
   isActive: boolean
-  setActiveTabId: React.Dispatch<React.SetStateAction<string | null>>
+  onActivateTab: (tabId: string) => void
   tab: TabRecord
 }
 
@@ -1058,7 +1058,7 @@ function ReorderableTab({
   closeTab,
   index,
   isActive,
-  setActiveTabId,
+  onActivateTab,
   tab
 }: ReorderableTabProps): React.JSX.Element {
   const dragControls = useDragControls()
@@ -1089,7 +1089,7 @@ function ReorderableTab({
           event.preventDefault()
           closeTab(tab.id)
         }}
-        onClick={() => setActiveTabId(tab.id)}
+        onClick={() => onActivateTab(tab.id)}
         onPointerDown={(event) => {
           if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) {
             return
@@ -1757,10 +1757,7 @@ function TerminalApp(): React.JSX.Element {
           })
 
           updateTab(tabId, (tab) => {
-            if (
-              tab.restoreState.kind !== 'ssh' ||
-              tab.restoreState.browserPath === listing.path
-            ) {
+            if (tab.restoreState.kind !== 'ssh' || tab.restoreState.browserPath === listing.path) {
               return tab
             }
 
@@ -2091,6 +2088,165 @@ function TerminalApp(): React.JSX.Element {
     })
   }, [])
 
+  const finalizeTabConnection = useCallback(
+    (
+      tabId: string,
+      terminalId: number,
+      title: string,
+      preferredTitle?: string,
+      shouldActivatePendingTab = false
+    ): void => {
+      const currentRuntime = runtimesRef.current.get(tabId)
+
+      if (!currentRuntime || currentRuntime.disposed || isUnmountingRef.current) {
+        window.api.terminal.kill(terminalId)
+        return
+      }
+
+      currentRuntime.closed = false
+      currentRuntime.terminalId = terminalId
+      currentRuntime.terminal.options.disableStdin = false
+      terminalToTabRef.current.set(terminalId, tabId)
+
+      updateTab(tabId, (tab) => ({
+        ...tab,
+        errorMessage: undefined,
+        exitCode: undefined,
+        reconnectAttempt: undefined,
+        status: 'ready',
+        terminalId,
+        title: preferredTitle ?? pendingTitlesRef.current.get(terminalId) ?? title
+      }))
+      pendingTitlesRef.current.delete(terminalId)
+
+      if (shouldActivatePendingTab && pendingActivationTabIdRef.current === tabId) {
+        pendingActivationTabIdRef.current = null
+        setActiveTabId(tabId)
+      }
+
+      if (activeTabIdRef.current === tabId) {
+        syncActiveTabLayout(tabId, true)
+      }
+    },
+    [syncActiveTabLayout, updateTab]
+  )
+
+  const failTabConnection = useCallback(
+    (
+      tabId: string,
+      message: string,
+      terminalMessage: string,
+      shouldActivatePendingTab = false
+    ): void => {
+      const currentRuntime = runtimesRef.current.get(tabId)
+
+      pendingInitialTabStateRef.current.delete(tabId)
+
+      if (!currentRuntime || currentRuntime.disposed) {
+        return
+      }
+
+      currentRuntime.closed = true
+      currentRuntime.terminalId = null
+      currentRuntime.terminal.options.disableStdin = true
+      currentRuntime.terminal.write(`${terminalMessage}: ${message}\r\n`)
+
+      updateTab(tabId, (tab) => ({
+        ...tab,
+        errorMessage: message,
+        exitCode: undefined,
+        reconnectAttempt: undefined,
+        status: 'closed',
+        terminalId: null
+      }))
+
+      if (shouldActivatePendingTab && pendingActivationTabIdRef.current === tabId) {
+        pendingActivationTabIdRef.current = null
+        setActiveTabId(tabId)
+      }
+    },
+    [updateTab]
+  )
+
+  const reconnectSshTab = useCallback(
+    (tabId: string): void => {
+      const tab = tabsRef.current.find((currentTab) => currentTab.id === tabId)
+      const runtime = runtimesRef.current.get(tabId)
+
+      if (!tab || tab.restoreState.kind !== 'ssh' || tab.status === 'connecting') {
+        return
+      }
+
+      if (!runtime || runtime.disposed || isUnmountingRef.current) {
+        return
+      }
+
+      updateTab(tabId, (currentTab) => {
+        if (currentTab.restoreState.kind !== 'ssh' || currentTab.status === 'connecting') {
+          return currentTab
+        }
+
+        return {
+          ...currentTab,
+          errorMessage: undefined,
+          exitCode: undefined,
+          reconnectAttempt: 1,
+          status: 'connecting',
+          terminalId: null
+        }
+      })
+
+      runtime.closed = true
+      runtime.terminalId = null
+      runtime.terminal.options.disableStdin = true
+      runtime.terminal.write('\r\n[reconnecting...]\r\n')
+
+      void window.api.ssh
+        .connect(tab.restoreState.configId, tab.restoreState.cwd)
+        .then(({ terminalId, title }) => {
+          finalizeTabConnection(tabId, terminalId, title)
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+          failTabConnection(tabId, message, 'Unable to reconnect')
+        })
+    },
+    [failTabConnection, finalizeTabConnection, updateTab]
+  )
+
+  const maybeReconnectSshTab = useCallback(
+    (tabId: string): void => {
+      const tab = tabsRef.current.find((currentTab) => currentTab.id === tabId)
+      const runtime = runtimesRef.current.get(tabId)
+
+      if (
+        !tab ||
+        tab.restoreState.kind !== 'ssh' ||
+        tab.status !== 'closed' ||
+        tab.terminalId !== null ||
+        !runtime ||
+        runtime.disposed ||
+        runtime.terminalId !== null
+      ) {
+        return
+      }
+
+      reconnectSshTab(tabId)
+    },
+    [reconnectSshTab]
+  )
+
+  const activateTab = useCallback(
+    (tabId: string): void => {
+      setActiveTabId(tabId)
+
+      if (activeTabIdRef.current === tabId) {
+        maybeReconnectSshTab(tabId)
+      }
+    },
+    [maybeReconnectSshTab]
+  )
+
   const disposeTabRuntime = useCallback((tabId: string, shouldKill: boolean): void => {
     const runtime = runtimesRef.current.get(tabId)
 
@@ -2175,34 +2331,49 @@ function TerminalApp(): React.JSX.Element {
       hostElementsRef.current.delete(tabId)
 
       setTabs(remainingTabs)
-      setActiveTabId((currentActiveTabId) => {
-        if (currentActiveTabId !== tabId) {
-          return currentActiveTabId
-        }
 
-        return remainingTabs[tabIndex]?.id ?? remainingTabs[tabIndex - 1]?.id ?? null
-      })
+      if (activeTabIdRef.current !== tabId) {
+        return
+      }
+
+      const nextActiveTabId = remainingTabs[tabIndex]?.id ?? remainingTabs[tabIndex - 1]?.id ?? null
+
+      if (!nextActiveTabId) {
+        setActiveTabId(null)
+        return
+      }
+
+      activateTab(nextActiveTabId)
     },
-    [closeSshBrowserForTab, disposeTabRuntime, removeSshBrowserWidthForTab]
+    [activateTab, closeSshBrowserForTab, disposeTabRuntime, removeSshBrowserWidthForTab]
   )
 
-  const selectAdjacentTab = useCallback((direction: -1 | 1): void => {
-    const currentTabs = tabsRef.current
-    const currentActiveTabId = activeTabIdRef.current
+  const selectAdjacentTab = useCallback(
+    (direction: -1 | 1): void => {
+      const currentTabs = tabsRef.current
+      const currentActiveTabId = activeTabIdRef.current
 
-    if (currentTabs.length < 2 || !currentActiveTabId) {
-      return
-    }
+      if (currentTabs.length < 2 || !currentActiveTabId) {
+        return
+      }
 
-    const currentIndex = currentTabs.findIndex((tab) => tab.id === currentActiveTabId)
+      const currentIndex = currentTabs.findIndex((tab) => tab.id === currentActiveTabId)
 
-    if (currentIndex === -1) {
-      return
-    }
+      if (currentIndex === -1) {
+        return
+      }
 
-    const nextIndex = (currentIndex + direction + currentTabs.length) % currentTabs.length
-    setActiveTabId(currentTabs[nextIndex]?.id ?? null)
-  }, [])
+      const nextIndex = (currentIndex + direction + currentTabs.length) % currentTabs.length
+      const nextTabId = currentTabs[nextIndex]?.id ?? null
+
+      if (!nextTabId) {
+        return
+      }
+
+      activateTab(nextTabId)
+    },
+    [activateTab]
+  )
 
   const initializeTab = useCallback(
     (tab: TabRecord, hostElement: HTMLDivElement): void => {
@@ -2260,64 +2431,16 @@ function TerminalApp(): React.JSX.Element {
 
       createTerminalRequest
         .then(({ terminalId, title }) => {
-          const currentRuntime = runtimesRef.current.get(tabId)
-
-          if (!currentRuntime || currentRuntime.disposed || isUnmountingRef.current) {
-            window.api.terminal.kill(terminalId)
-            return
-          }
-
-          currentRuntime.terminalId = terminalId
-          terminalToTabRef.current.set(terminalId, tabId)
-
-          updateTab(tabId, (tab) => ({
-            ...tab,
-            status: 'ready',
-            terminalId,
-            title:
-              pendingInitialTabState?.title ?? pendingTitlesRef.current.get(terminalId) ?? title
-          }))
-          pendingTitlesRef.current.delete(terminalId)
-
           pendingInitialTabStateRef.current.delete(tabId)
-
-          if (pendingActivationTabIdRef.current === tabId) {
-            pendingActivationTabIdRef.current = null
-            setActiveTabId(tabId)
-          }
-
-          if (activeTabIdRef.current === tabId) {
-            syncActiveTabLayout(tabId, true)
-          }
+          finalizeTabConnection(tabId, terminalId, title, pendingInitialTabState?.title, true)
         })
         .catch((error) => {
-          const currentRuntime = runtimesRef.current.get(tabId)
           const message = error instanceof Error ? error.message : String(error)
 
-          pendingInitialTabStateRef.current.delete(tabId)
-
-          if (!currentRuntime || currentRuntime.disposed) {
-            return
-          }
-
-          currentRuntime.closed = true
-          currentRuntime.terminal.options.disableStdin = true
-          currentRuntime.terminal.write(`Unable to start shell: ${message}\r\n`)
-
-          updateTab(tabId, (tab) => ({
-            ...tab,
-            errorMessage: message,
-            status: 'closed',
-            terminalId: null
-          }))
-
-          if (pendingActivationTabIdRef.current === tabId) {
-            pendingActivationTabIdRef.current = null
-            setActiveTabId(tabId)
-          }
+          failTabConnection(tabId, message, 'Unable to start shell', true)
         })
     },
-    [queueSearchRefresh, syncActiveTabLayout, updateTab]
+    [failTabConnection, finalizeTabConnection, queueSearchRefresh, syncActiveTabLayout]
   )
 
   const handleTabsReorder = useCallback((nextOrder: TabRecord[]): void => {
@@ -2345,6 +2468,42 @@ function TerminalApp(): React.JSX.Element {
   useEffect(() => {
     activeTabIdRef.current = activeTabId
   }, [activeTabId])
+
+  useEffect(() => {
+    if (!activeTabId) {
+      return
+    }
+
+    maybeReconnectSshTab(activeTabId)
+  }, [activeTabId, maybeReconnectSshTab])
+
+  useEffect(() => {
+    const reconnectActiveSshTab = (): void => {
+      const currentActiveTabId = activeTabIdRef.current
+
+      if (!currentActiveTabId) {
+        return
+      }
+
+      maybeReconnectSshTab(currentActiveTabId)
+    }
+
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+
+      reconnectActiveSshTab()
+    }
+
+    window.addEventListener('focus', reconnectActiveSshTab)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', reconnectActiveSshTab)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [maybeReconnectSshTab])
 
   useEffect(() => {
     isSearchOpenRef.current = isSearchOpen
@@ -2515,16 +2674,31 @@ function TerminalApp(): React.JSX.Element {
 
       if (cwd) {
         updateTab(tabId, (tab) => {
-          if (tab.restoreState.kind !== 'ssh' || tab.restoreState.cwd === cwd) {
+          if (tab.restoreState.kind !== 'ssh') {
+            return typeof tab.reconnectAttempt === 'number'
+              ? {
+                  ...tab,
+                  reconnectAttempt: undefined
+                }
+              : tab
+          }
+
+          const nextRestoreState =
+            tab.restoreState.cwd === cwd
+              ? tab.restoreState
+              : {
+                  ...tab.restoreState,
+                  cwd
+                }
+
+          if (nextRestoreState === tab.restoreState && tab.reconnectAttempt === undefined) {
             return tab
           }
 
           return {
             ...tab,
-            restoreState: {
-              ...tab.restoreState,
-              cwd
-            }
+            reconnectAttempt: undefined,
+            restoreState: nextRestoreState
           }
         })
       }
@@ -2563,6 +2737,7 @@ function TerminalApp(): React.JSX.Element {
       updateTab(tabId, (tab) => ({
         ...tab,
         exitCode: event.exitCode,
+        reconnectAttempt: undefined,
         status: 'closed',
         terminalId: null
       }))
@@ -2664,7 +2839,7 @@ function TerminalApp(): React.JSX.Element {
         }
 
         event.preventDefault()
-        setActiveTabId(targetTab.id)
+        activateTab(targetTab.id)
         return
       }
 
@@ -2691,7 +2866,7 @@ function TerminalApp(): React.JSX.Element {
     return () => {
       window.removeEventListener('keydown', onKeyDown, { capture: true })
     }
-  }, [closeTab, createTab, selectAdjacentTab])
+  }, [activateTab, closeTab, createTab, selectAdjacentTab])
 
   useEffect(() => {
     if (!isSearchOpen) {
@@ -3175,9 +3350,7 @@ function TerminalApp(): React.JSX.Element {
     })
   }, [
     activeLocalTabCwd,
-    activeSshBrowserPath,
     activeSshConfigId,
-    activeSshCwd,
     activeSshTabId,
     activeSshBrowserState,
     closeSshBrowserForTab,
@@ -3869,7 +4042,7 @@ function TerminalApp(): React.JSX.Element {
                   index={index}
                   isActive={isActive}
                   key={tab.id}
-                  setActiveTabId={setActiveTabId}
+                  onActivateTab={activateTab}
                   tab={tab}
                 />
               )
