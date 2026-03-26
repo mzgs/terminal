@@ -20,13 +20,14 @@ import type { ConnectConfig } from 'ssh2'
 import icon from '../../resources/icon.png?asset'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
 import type {
+  SshDownloadProgressEvent,
   SshRemoteDirectoryEntry,
   SshRemoteDirectoryListing,
   SshServerConfig,
   SshServerConfigInput,
   SshServerConfigSaveInput,
-  SshUploadProgressEvent,
-  SshUploadProgressStatus
+  SshTransferProgressStatus,
+  SshUploadProgressEvent
 } from '../shared/ssh'
 import type { TerminalCreateOptions, TerminalCreateResult } from '../shared/terminal'
 
@@ -820,18 +821,27 @@ function emitSshUploadProgress(webContents: WebContents, payload: SshUploadProgr
   }
 }
 
+function emitSshDownloadProgress(
+  webContents: WebContents,
+  payload: SshDownloadProgressEvent
+): void {
+  if (!webContents.isDestroyed()) {
+    webContents.send('ssh:download-progress', payload)
+  }
+}
+
 function createSshUploadProgressEmitter(
   webContents: WebContents,
   uploadId: string,
   targetPath: string,
   totalBytes: number
 ): (
-  status: SshUploadProgressStatus,
+  status: SshTransferProgressStatus,
   transferredBytes: number,
   currentPath?: string | null
 ) => void {
   let lastPercent = -1
-  let lastStatus: SshUploadProgressStatus | null = null
+  let lastStatus: SshTransferProgressStatus | null = null
   let lastPath: string | null = null
 
   return (status, transferredBytes, currentPath = null) => {
@@ -860,6 +870,52 @@ function createSshUploadProgressEmitter(
       totalBytes,
       transferredBytes: status === 'completed' ? totalBytes : normalizedTransferredBytes,
       uploadId
+    })
+  }
+}
+
+function createSshDownloadProgressEmitter(
+  webContents: WebContents,
+  downloadId: string,
+  sourcePath: string,
+  targetPath: string,
+  totalBytes: number
+): (
+  status: SshTransferProgressStatus,
+  transferredBytes: number,
+  currentPath?: string | null
+) => void {
+  let lastPercent = -1
+  let lastStatus: SshTransferProgressStatus | null = null
+  let lastPath: string | null = null
+
+  return (status, transferredBytes, currentPath = null) => {
+    const normalizedTransferredBytes =
+      totalBytes <= 0 ? 0 : Math.min(Math.max(0, transferredBytes), totalBytes)
+    const percent =
+      totalBytes <= 0
+        ? status === 'completed'
+          ? 100
+          : 0
+        : Math.round((normalizedTransferredBytes / totalBytes) * 100)
+
+    if (status === lastStatus && percent === lastPercent && currentPath === lastPath) {
+      return
+    }
+
+    lastStatus = status
+    lastPercent = percent
+    lastPath = currentPath
+
+    emitSshDownloadProgress(webContents, {
+      currentPath,
+      downloadId,
+      percent,
+      sourcePath,
+      status,
+      targetPath,
+      totalBytes,
+      transferredBytes: status === 'completed' ? totalBytes : normalizedTransferredBytes
     })
   }
 }
@@ -1064,6 +1120,59 @@ async function runSftpUploadCommand(
     emitProgress('completed', uploadPlan.totalBytes, uploadPlan.files.at(-1)?.localPath ?? null)
   } catch (error) {
     emitProgress('failed', transferredBytes)
+    throw error
+  } finally {
+    await sftpClient.end().catch(() => false)
+  }
+}
+
+async function runSftpDownloadCommand(
+  webContents: WebContents,
+  config: SshServerConfig,
+  password: string | null,
+  remotePath: string,
+  localPath: string
+): Promise<void> {
+  const sftpClient = new SftpClient('terminal-download')
+  const downloadId = randomUUID()
+  let transferredBytes = 0
+  let totalBytes = 0
+  let emitProgress:
+    | ((
+        status: SshTransferProgressStatus,
+        transferredBytes: number,
+        currentPath?: string | null
+      ) => void)
+    | null = null
+
+  try {
+    await sftpClient.connect(buildSftpConnectOptions(config, password))
+
+    const remoteStats = await sftpClient.stat(remotePath)
+    totalBytes = remoteStats.size
+    const nextEmitProgress = createSshDownloadProgressEmitter(
+      webContents,
+      downloadId,
+      remotePath,
+      localPath,
+      totalBytes
+    )
+    emitProgress = nextEmitProgress
+
+    nextEmitProgress('running', 0, remotePath)
+
+    await sftpClient.fastGet(remotePath, localPath, {
+      step: (totalTransferred, _chunk, total) => {
+        const fileTotalBytes = total > 0 ? total : totalBytes
+
+        transferredBytes = Math.min(fileTotalBytes, totalTransferred)
+        nextEmitProgress('running', transferredBytes, remotePath)
+      }
+    })
+
+    nextEmitProgress('completed', totalBytes, remotePath)
+  } catch (error) {
+    emitProgress?.('failed', transferredBytes, remotePath)
     throw error
   } finally {
     await sftpClient.end().catch(() => false)
@@ -1456,6 +1565,7 @@ async function renameSshPath(configId: string, path: string, nextPath: string): 
 }
 
 async function downloadSshPath(
+  webContents: WebContents,
   configId: string,
   path: string,
   isDirectory: boolean
@@ -1468,13 +1578,23 @@ async function downloadSshPath(
 
   const password = config.authMethod === 'password' ? decryptSshPassword(config.password) : null
   const downloadsPath = app.getPath('downloads')
+  const normalizedPath = path.trim()
+
+  if (normalizedPath === '') {
+    throw new Error('Remote path is required.')
+  }
 
   mkdirSync(downloadsPath, { recursive: true })
 
-  const normalizedName = basename(path.replace(/\/+$/, '')) || 'download'
+  const normalizedName = basename(normalizedPath.replace(/\/+$/, '')) || 'download'
   const targetPath = getUniqueDownloadPath(join(downloadsPath, normalizedName))
 
-  await runScpCommand(config, password, path, targetPath, isDirectory)
+  if (isDirectory || normalizedPath === '~' || normalizedPath.startsWith('~/')) {
+    await runScpCommand(config, password, normalizedPath, targetPath, isDirectory)
+    return targetPath
+  }
+
+  await runSftpDownloadCommand(webContents, config, password, normalizedPath, targetPath)
 
   return targetPath
 }
@@ -1741,8 +1861,8 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(
     'ssh:download-path',
-    (_event, payload: { configId: string; isDirectory: boolean; path: string }) =>
-      downloadSshPath(payload.configId, payload.path, payload.isDirectory)
+    (event, payload: { configId: string; isDirectory: boolean; path: string }) =>
+      downloadSshPath(event.sender, payload.configId, payload.path, payload.isDirectory)
   )
   ipcMain.handle('ssh:list-directory', (_event, payload: { configId: string; path?: string }) =>
     listSshDirectory(payload.configId, payload.path)

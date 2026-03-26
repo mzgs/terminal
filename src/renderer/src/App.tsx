@@ -35,6 +35,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
 import type {
   SshAuthMethod,
+  SshDownloadProgressEvent,
   SshRemoteDirectoryEntry,
   SshServerConfig,
   SshServerConfigInput,
@@ -106,10 +107,17 @@ interface SshBrowserContextMenuState {
 }
 
 interface TerminalContextMenuState {
+  quickDownloadAction: TerminalQuickDownloadAction | null
   selectionText: string
   tabId: string
   x: number
   y: number
+}
+
+interface TerminalQuickDownloadAction {
+  configId: string
+  fileName: string
+  remotePath: string
 }
 
 interface SshBrowserFileIconDescriptor {
@@ -560,6 +568,133 @@ function stripSshRemoteCwdSequences(
 
 function joinRemoteDirectoryPath(basePath: string, name: string): string {
   return basePath === '/' ? `/${name}` : `${basePath.replace(/\/+$/, '')}/${name}`
+}
+
+function getRemotePathBaseName(path: string): string {
+  const normalizedPath = path.replace(/\/+$/, '')
+
+  if (normalizedPath === '' || normalizedPath === '/') {
+    return path
+  }
+
+  const lastSlashIndex = normalizedPath.lastIndexOf('/')
+
+  return lastSlashIndex >= 0 ? normalizedPath.slice(lastSlashIndex + 1) : normalizedPath
+}
+
+function unwrapBalancedQuotes(value: string): string {
+  if (value.length < 2) {
+    return value
+  }
+
+  const firstCharacter = value[0]
+  const lastCharacter = value[value.length - 1]
+
+  if (
+    (firstCharacter === "'" && lastCharacter === "'") ||
+    (firstCharacter === '"' && lastCharacter === '"') ||
+    (firstCharacter === '`' && lastCharacter === '`')
+  ) {
+    return value.slice(1, -1).trim()
+  }
+
+  return value
+}
+
+function normalizeTerminalSelectionForRemotePath(selectionText: string): string | null {
+  const normalizedSelection = unwrapBalancedQuotes(selectionText.replace(/\r/g, '').trim())
+
+  if (
+    normalizedSelection === '' ||
+    normalizedSelection === '.' ||
+    normalizedSelection === '..' ||
+    normalizedSelection === '~' ||
+    normalizedSelection.endsWith('/') ||
+    normalizedSelection.includes('\n')
+  ) {
+    return null
+  }
+
+  return normalizedSelection
+}
+
+function normalizeRemotePath(path: string): string {
+  if (path === '' || path === '/') {
+    return '/'
+  }
+
+  const isAbsolutePath = path.startsWith('/')
+  const normalizedSegments: string[] = []
+
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') {
+      continue
+    }
+
+    if (segment === '..') {
+      if (
+        normalizedSegments.length > 0 &&
+        normalizedSegments[normalizedSegments.length - 1] !== '..'
+      ) {
+        normalizedSegments.pop()
+      } else if (!isAbsolutePath) {
+        normalizedSegments.push(segment)
+      }
+
+      continue
+    }
+
+    normalizedSegments.push(segment)
+  }
+
+  if (isAbsolutePath) {
+    return normalizedSegments.length === 0 ? '/' : `/${normalizedSegments.join('/')}`
+  }
+
+  return normalizedSegments.join('/')
+}
+
+function getTerminalQuickDownloadAction(
+  tab: TabRecord,
+  selectionText: string
+): TerminalQuickDownloadAction | null {
+  if (tab.restoreState.kind !== 'ssh') {
+    return null
+  }
+
+  const normalizedSelection = normalizeTerminalSelectionForRemotePath(selectionText)
+
+  if (!normalizedSelection) {
+    return null
+  }
+
+  let remotePath: string | null = null
+
+  if (
+    normalizedSelection === '~' ||
+    normalizedSelection.startsWith('~/') ||
+    normalizedSelection.startsWith('/')
+  ) {
+    remotePath = normalizeRemotePath(normalizedSelection)
+  } else if (tab.restoreState.cwd) {
+    remotePath = normalizeRemotePath(
+      joinRemoteDirectoryPath(tab.restoreState.cwd, normalizedSelection)
+    )
+  }
+
+  if (!remotePath) {
+    return null
+  }
+
+  if (remotePath === '/' || remotePath === '~') {
+    return null
+  }
+
+  return {
+    configId: tab.restoreState.configId,
+    fileName: getRemotePathBaseName(remotePath),
+    remotePath
+  }
 }
 
 function getRemoteDirectoryParentPath(path: string): string | null {
@@ -1314,6 +1449,9 @@ function TerminalApp(): React.JSX.Element {
   )
   const [sshBrowserContextMenu, setSshBrowserContextMenu] =
     useState<SshBrowserContextMenuState | null>(null)
+  const [sshDownloadProgress, setSshDownloadProgress] = useState<SshDownloadProgressEvent | null>(
+    null
+  )
   const [sshUploadProgress, setSshUploadProgress] = useState<SshUploadProgressEvent | null>(null)
   const [isSshConfigDialogOpen, setIsSshConfigDialogOpen] = useState(false)
   const [sshServerBeingEdited, setSshServerBeingEdited] = useState<SshServerConfig | null>(null)
@@ -1339,6 +1477,7 @@ function TerminalApp(): React.JSX.Element {
   const sshBrowserResizePointerIdRef = useRef<number | null>(null)
   const sshBrowserResizeTabIdRef = useRef<string | null>(null)
   const sshBrowserRequestIdRef = useRef(0)
+  const sshDownloadHideTimeoutRef = useRef<number | null>(null)
   const sshUploadHideTimeoutRef = useRef<number | null>(null)
   const sshCwdSequenceBuffersRef = useRef(new Map<number, string>())
   const terminalToTabRef = useRef(new Map<number, string>())
@@ -3003,6 +3142,8 @@ function TerminalApp(): React.JSX.Element {
       event.stopPropagation()
 
       const selectionText = runtime.terminal.getSelection()
+      const tab = tabsRef.current.find((currentTab) => currentTab.id === tabId)
+      const quickDownloadAction = tab ? getTerminalQuickDownloadAction(tab, selectionText) : null
 
       const menuPadding = 12
       const menuWidth = 296
@@ -3011,6 +3152,7 @@ function TerminalApp(): React.JSX.Element {
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
       setTerminalContextMenu({
+        quickDownloadAction,
         selectionText,
         tabId,
         x: Math.min(Math.max(event.clientX, menuPadding), maxX),
@@ -3060,6 +3202,32 @@ function TerminalApp(): React.JSX.Element {
       .catch((error) => {
         console.error('Unable to open Google search.', error)
       })
+    closeTerminalContextMenu()
+  }, [closeTerminalContextMenu, terminalContextMenu])
+
+  const handleDownloadTerminalSelection = useCallback((): void => {
+    const currentMenu = terminalContextMenu
+
+    if (!currentMenu?.quickDownloadAction) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    const runtime = runtimesRef.current.get(currentMenu.tabId)
+
+    if (!runtime || runtime.disposed) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    const { configId, remotePath } = currentMenu.quickDownloadAction
+
+    runtime.terminal.focus()
+
+    void window.api.ssh.downloadPath(configId, remotePath, false).catch((error) => {
+      console.error('Unable to download selected remote file.', error)
+    })
+
     closeTerminalContextMenu()
   }, [closeTerminalContextMenu, terminalContextMenu])
 
@@ -3403,6 +3571,42 @@ function TerminalApp(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    const disposeDownloadProgress = window.api.ssh.onDownloadProgress((event) => {
+      if (sshDownloadHideTimeoutRef.current !== null) {
+        window.clearTimeout(sshDownloadHideTimeoutRef.current)
+        sshDownloadHideTimeoutRef.current = null
+      }
+
+      if (event.status === 'failed') {
+        setSshDownloadProgress((currentProgress) =>
+          currentProgress?.downloadId === event.downloadId ? null : currentProgress
+        )
+        return
+      }
+
+      setSshDownloadProgress(event)
+
+      if (event.status === 'completed') {
+        sshDownloadHideTimeoutRef.current = window.setTimeout(() => {
+          setSshDownloadProgress((currentProgress) =>
+            currentProgress?.downloadId === event.downloadId ? null : currentProgress
+          )
+          sshDownloadHideTimeoutRef.current = null
+        }, 2000)
+      }
+    })
+
+    return () => {
+      if (sshDownloadHideTimeoutRef.current !== null) {
+        window.clearTimeout(sshDownloadHideTimeoutRef.current)
+        sshDownloadHideTimeoutRef.current = null
+      }
+
+      disposeDownloadProgress()
+    }
+  }, [])
+
+  useEffect(() => {
     const disposeUploadProgress = window.api.ssh.onUploadProgress((event) => {
       if (sshUploadHideTimeoutRef.current !== null) {
         window.clearTimeout(sshUploadHideTimeoutRef.current)
@@ -3464,6 +3668,17 @@ function TerminalApp(): React.JSX.Element {
         : searchResultIndex >= 0
           ? `${searchResultIndex + 1}/${searchResultCount}`
           : `${searchResultCount} matches`
+  const downloadProgressPercent = sshDownloadProgress ? Math.round(sshDownloadProgress.percent) : 0
+  const downloadProgressOffset =
+    uploadProgressCircleCircumference -
+    (uploadProgressCircleCircumference * downloadProgressPercent) / 100
+  const isDownloadCompleted = sshDownloadProgress?.status === 'completed'
+  const downloadProgressRingStyle: CSSProperties | undefined = sshDownloadProgress
+    ? {
+        strokeDasharray: uploadProgressCircleCircumference,
+        strokeDashoffset: downloadProgressOffset
+      }
+    : undefined
   const uploadProgressPercent = sshUploadProgress ? Math.round(sshUploadProgress.percent) : 0
   const uploadProgressOffset =
     uploadProgressCircleCircumference -
@@ -3516,6 +3731,36 @@ function TerminalApp(): React.JSX.Element {
         </div>
         <div aria-hidden="true" className="window-drag-spacer" />
         <div className="tab-actions">
+          {sshDownloadProgress ? (
+            <div
+              aria-label={
+                isDownloadCompleted
+                  ? `Download to ${sshDownloadProgress.targetPath} completed`
+                  : `Download progress ${downloadProgressPercent}%`
+              }
+              className={`window-upload-progress${isDownloadCompleted ? ' is-complete' : ''}`}
+              title={
+                isDownloadCompleted
+                  ? `Download to ${sshDownloadProgress.targetPath} completed`
+                  : `Downloading to ${sshDownloadProgress.targetPath}: ${downloadProgressPercent}%`
+              }
+            >
+              {isDownloadCompleted ? (
+                <Check aria-hidden="true" className="window-upload-success-icon" />
+              ) : (
+                <svg aria-hidden="true" className="window-upload-progress-ring" viewBox="0 0 40 40">
+                  <circle className="window-upload-progress-track" cx="20" cy="20" r="16" />
+                  <circle
+                    className="window-upload-progress-value"
+                    cx="20"
+                    cy="20"
+                    r="16"
+                    style={downloadProgressRingStyle}
+                  />
+                </svg>
+              )}
+            </div>
+          ) : null}
           {sshUploadProgress ? (
             <div
               aria-label={
@@ -3734,6 +3979,23 @@ function TerminalApp(): React.JSX.Element {
               top: terminalContextMenu.y
             }}
           >
+            {terminalContextMenu.quickDownloadAction ? (
+              <>
+                <button
+                  className="terminal-context-menu-item"
+                  onClick={handleDownloadTerminalSelection}
+                  role="menuitem"
+                  title="Download"
+                  type="button"
+                >
+                  <span className="terminal-context-menu-item-icon-shell">
+                    <Download aria-hidden="true" className="terminal-context-menu-icon" />
+                  </span>
+                  <span className="terminal-context-menu-label">Download</span>
+                </button>
+                <div aria-hidden="true" className="terminal-context-menu-divider" />
+              </>
+            ) : null}
             <button
               className="terminal-context-menu-item"
               disabled={terminalContextMenu.selectionText.trim() === ''}

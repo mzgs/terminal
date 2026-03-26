@@ -705,6 +705,9 @@ body {
 
 .terminal-context-menu-label {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-context-menu-icon {

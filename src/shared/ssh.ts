@@ -31,16 +31,27 @@ export interface SshServerConfigSaveInput extends SshServerConfigInput {
   id?: string
 }
 
-export type SshUploadProgressStatus = 'running' | 'completed' | 'failed'
+export type SshTransferProgressStatus = 'running' | 'completed' | 'failed'
 
 export interface SshUploadProgressEvent {
   currentPath: string | null
   percent: number
-  status: SshUploadProgressStatus
+  status: SshTransferProgressStatus
   targetPath: string
   totalBytes: number
   transferredBytes: number
   uploadId: string
+}
+
+export interface SshDownloadProgressEvent {
+  currentPath: string | null
+  downloadId: string
+  percent: number
+  sourcePath: string
+  status: SshTransferProgressStatus
+  targetPath: string
+  totalBytes: number
+  transferredBytes: number
 }
 
 export interface SshApi {
@@ -52,6 +63,7 @@ export interface SshApi {
   listConfigs: () => Promise<SshServerConfig[]>
   onConfigAdded: (callback: (config: SshServerConfig) => void) => () => void
   onConfigDeleted: (callback: (configId: string) => void) => () => void
+  onDownloadProgress: (callback: (event: SshDownloadProgressEvent) => void) => () => void
   onUploadProgress: (callback: (event: SshUploadProgressEvent) => void) => () => void
   renamePath: (configId: string, path: string, nextPath: string) => Promise<void>
   saveConfig: (config: SshServerConfigSaveInput) => Promise<void>

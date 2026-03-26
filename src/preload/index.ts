@@ -5,6 +5,7 @@ import type { SessionApi } from '../shared/session'
 import type { ShellApi } from '../shared/shell'
 import type {
   SshApi,
+  SshDownloadProgressEvent,
   SshRemoteDirectoryListing,
   SshServerConfig,
   SshUploadProgressEvent
@@ -106,6 +107,20 @@ const ssh: SshApi = {
       path
     }) as Promise<SshRemoteDirectoryListing>,
   listConfigs: () => ipcRenderer.invoke('ssh:list-configs'),
+  onDownloadProgress: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: SshDownloadProgressEvent
+    ): void => {
+      callback(payload)
+    }
+
+    ipcRenderer.on('ssh:download-progress', listener)
+
+    return () => {
+      ipcRenderer.off('ssh:download-progress', listener)
+    }
+  },
   onUploadProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: SshUploadProgressEvent): void => {
       callback(payload)
