@@ -256,6 +256,14 @@ body {
   flex: 0 0 auto;
 }
 
+.tab-server-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  display: block;
+  object-fit: contain;
+}
+
 .tab-status-connecting {
   background: #ffd479;
 }

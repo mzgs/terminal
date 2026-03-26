@@ -1145,6 +1145,7 @@ interface ReorderableTabProps {
   index: number
   isActive: boolean
   onActivateTab: (tabId: string) => void
+  sshServerIcon?: SshServerIcon | null
   tab: TabRecord
 }
 
@@ -1153,6 +1154,7 @@ function ReorderableTab({
   index,
   isActive,
   onActivateTab,
+  sshServerIcon,
   tab
 }: ReorderableTabProps): React.JSX.Element {
   const dragControls = useDragControls()
@@ -1196,6 +1198,9 @@ function ReorderableTab({
         type="button"
       >
         <span className={`tab-status-dot tab-status-${tab.status}`} aria-hidden="true" />
+        {tab.restoreState.kind === 'ssh' ? (
+          <SshServerIconGlyph className="tab-server-icon" icon={sshServerIcon} />
+        ) : null}
         <span className="tab-copy">
           <span className="tab-label">{tab.title}</span>
           {tabStatusLabel ? <span className="tab-meta">{tabStatusLabel}</span> : null}
@@ -1621,7 +1626,9 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
     >
       <div className="ssh-config-header">
         <div className="ssh-config-header-main">
-          <h2 className="ssh-config-title" id="ssh-config-title">{dialogTitle}</h2>
+          <h2 className="ssh-config-title" id="ssh-config-title">
+            {dialogTitle}
+          </h2>
         </div>
         <button
           aria-label="Close server dialog"
@@ -4335,6 +4342,12 @@ function TerminalApp(): React.JSX.Element {
           >
             {tabs.map((tab, index) => {
               const isActive = tab.id === activeTabId
+              const { restoreState } = tab
+              const sshServerIcon =
+                restoreState.kind === 'ssh'
+                  ? (sshServers.find((server) => server.id === restoreState.configId)?.icon ??
+                    defaultRendererSshServerIcon)
+                  : null
 
               return (
                 <ReorderableTab
@@ -4343,6 +4356,7 @@ function TerminalApp(): React.JSX.Element {
                   isActive={isActive}
                   key={tab.id}
                   onActivateTab={activateTab}
+                  sshServerIcon={sshServerIcon}
                   tab={tab}
                 />
               )
