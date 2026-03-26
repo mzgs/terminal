@@ -12,7 +12,7 @@ import {
   statSync,
   writeFileSync
 } from 'node:fs'
-import { basename, dirname, join, parse } from 'path'
+import { basename, delimiter, dirname, join, parse } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, type IPty } from 'node-pty'
 import SftpClient from 'ssh2-sftp-client'
@@ -137,6 +137,67 @@ function isExecutableFile(path: string): boolean {
   } catch {
     return false
   }
+}
+
+function getExecutableCandidates(command: string): string[] {
+  if (process.platform === 'win32') {
+    const extensions =
+      parse(command).ext !== ''
+        ? ['']
+        : (process.env.PATHEXT?.split(';').filter((value) => value !== '') ?? [
+            '.exe',
+            '.cmd',
+            '.bat',
+            '.com'
+          ])
+    const systemRoot = process.env.SystemRoot || 'C:\\Windows'
+
+    return Array.from(
+      new Set([
+        ...((process.env.PATH ?? '')
+          .split(delimiter)
+          .filter((entry) => entry !== '')
+          .flatMap((entry) => extensions.map((extension) => join(entry, `${command}${extension}`)))),
+        ...extensions.map((extension) =>
+          join(systemRoot, 'System32', 'OpenSSH', `${command}${extension}`)
+        )
+      ])
+    )
+  }
+
+  return Array.from(
+    new Set([
+      ...((process.env.PATH ?? '')
+        .split(delimiter)
+        .filter((entry) => entry !== '')
+        .map((entry) => join(entry, command))),
+      `/usr/bin/${command}`,
+      `/bin/${command}`,
+      `/usr/local/bin/${command}`,
+      `/opt/homebrew/bin/${command}`,
+      `/opt/local/bin/${command}`
+    ])
+  )
+}
+
+function resolveExecutablePath(command: string): string {
+  if (command.includes('/') || command.includes('\\')) {
+    if (isExecutableFile(command)) {
+      return command
+    }
+
+    throw new Error(`Executable not found or not executable: ${command}`)
+  }
+
+  const executablePath = getExecutableCandidates(command).find((candidate) =>
+    isExecutableFile(candidate)
+  )
+
+  if (!executablePath) {
+    throw new Error(`Unable to find "${command}" in PATH or standard locations.`)
+  }
+
+  return executablePath
 }
 
 function getShellCandidates(): string[] {
@@ -330,20 +391,26 @@ function spawnTerminalProcess(options?: TerminalCreateOptions): TerminalSpawnRes
   const env = getTerminalEnv(cwd, options?.env)
 
   if (options?.command) {
-    const shellName = formatShellName(options.command)
+    const commandPath = resolveExecutablePath(options.command)
+    const shellName = formatShellName(commandPath)
 
-    return {
-      cwd,
-      process: spawn(options.command, options.args ?? [], {
-        name: 'xterm-256color',
-        cols: 100,
-        rows: 30,
+    try {
+      return {
         cwd,
-        env
-      }),
-      shellName,
-      title: options.title?.trim() || shellName,
-      trackCwd: options.trackCwd ?? false
+        process: spawn(commandPath, options.args ?? [], {
+          name: 'xterm-256color',
+          cols: 100,
+          rows: 30,
+          cwd,
+          env
+        }),
+        shellName,
+        title: options.title?.trim() || shellName,
+        trackCwd: options.trackCwd ?? false
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Unable to start "${commandPath}" in "${cwd}". ${message}`)
     }
   }
 
@@ -1025,12 +1092,13 @@ function runSshCommand(
   password: string | null,
   remoteCommand: string
 ): Promise<string> {
+  const sshPath = resolveExecutablePath('ssh')
   const sshEnv = getSshCommandEnv(password, true)
   const commandEnv = sshEnv ? { ...process.env, ...sshEnv } : process.env
 
   return new Promise((resolve, reject) => {
     execFile(
-      'ssh',
+      sshPath,
       [...buildSshBaseArgs(config), `${config.username}@${config.host}`, remoteCommand],
       {
         encoding: 'utf8',
@@ -1056,6 +1124,7 @@ function runScpCommand(
   localPath: string,
   isDirectory: boolean
 ): Promise<void> {
+  const scpPath = resolveExecutablePath('scp')
   const scpEnv = getSshCommandEnv(password, true)
   const commandEnv = scpEnv ? { ...process.env, ...scpEnv } : process.env
   const args = buildScpBaseArgs(config)
@@ -1068,7 +1137,7 @@ function runScpCommand(
 
   return new Promise((resolve, reject) => {
     execFile(
-      'scp',
+      scpPath,
       args,
       {
         encoding: 'utf8',
@@ -1526,6 +1595,7 @@ function buildSshTerminalCreateOptions(
   password: string | null,
   cwd?: string
 ): TerminalCreateOptions {
+  const sshPath = resolveExecutablePath('ssh')
   const args = buildSshBaseArgs(config)
   const env = getSshCommandEnv(password)
 
@@ -1533,7 +1603,7 @@ function buildSshTerminalCreateOptions(
 
   return {
     args,
-    command: 'ssh',
+    command: sshPath,
     env,
     title: config.name,
     trackCwd: false
