@@ -10,6 +10,9 @@
   --color-success: #7bf2b0;
   --color-warning: #ffd479;
   --color-danger: #ff8d89;
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: rgba(82, 88, 96, 0.92);
+  --scrollbar-thumb-hover: rgba(108, 115, 124, 0.96);
 }
 
 *,
@@ -17,6 +20,35 @@
 *::after {
   box-sizing: border-box;
   margin: 0;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 ul {

@@ -92,7 +92,6 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 6px 0;
-  scrollbar-width: none;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   pointer-events: auto;
@@ -174,11 +173,6 @@ body {
   width: 15px;
   height: 15px;
   stroke-width: 2.75;
-}
-
-.tab-strip::-webkit-scrollbar {
-  width: 0;
-  height: 0;
 }
 
 .tab-item {
@@ -1099,15 +1093,6 @@ body {
   background: #000 !important;
 }
 
-.terminal-screen .xterm-viewport {
-  scrollbar-width: none;
-}
-
-.terminal-screen .xterm-viewport::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
 @media (max-width: 720px) {
   .terminal-search {
     top: 10px;
@@ -1432,7 +1417,6 @@ body {
   max-height: 248px;
   overflow-y: auto;
   padding-right: 4px;
-  scrollbar-gutter: stable;
 }
 
 .ssh-icon-select-option {
