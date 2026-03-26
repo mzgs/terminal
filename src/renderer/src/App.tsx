@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type IBufferCell, type ITheme } from '@xterm/xterm'
 import {
   BrushCleaning,
+  CirclePlus,
   Check,
   ChevronDown,
   ChevronUp,
@@ -19,7 +20,6 @@ import {
   FileVideoCamera,
   Folder,
   FolderOpen,
-  HardDrive,
   Pencil,
   Plus,
   Search,
@@ -4469,7 +4469,7 @@ function TerminalApp(): React.JSX.Element {
                   role="menuitem"
                   type="button"
                 >
-                  <HardDrive aria-hidden="true" className="tab-action-menu-icon" />
+                  <CirclePlus aria-hidden="true" className="tab-action-menu-icon" />
                   Add SSH Server
                 </button>
                 {sshServers.length > 0 ? (
