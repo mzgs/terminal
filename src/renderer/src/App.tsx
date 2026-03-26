@@ -1463,6 +1463,7 @@ function SshServerIconSelect({
 
 function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React.JSX.Element {
   const isEditing = serverConfig !== null
+  const dialogTitle = isEditing ? 'Edit server' : 'Add server'
   const [formState, setFormState] = useState<SshServerConfigInput>(() =>
     createSshConfigFormState(serverConfig)
   )
@@ -1611,7 +1612,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
       }}
       bodyOpenClassName="ssh-config-modal-open"
       className="ssh-config-card ssh-config-dialog"
-      contentLabel={isEditing ? 'Edit SSH server config' : 'Add SSH server config'}
+      contentLabel={dialogTitle}
       isOpen
       onRequestClose={handleCancel}
       overlayClassName="ssh-config-dialog-shell"
@@ -1620,18 +1621,10 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
     >
       <div className="ssh-config-header">
         <div className="ssh-config-header-main">
-          <span className="ssh-config-eyebrow">SSH Server</span>
-          <h2 className="ssh-config-title" id="ssh-config-title">
-            {isEditing ? 'Edit SSH server' : 'Add SSH server config'}
-          </h2>
-          {!isEditing ? (
-            <p className="ssh-config-copy">
-              Save a host definition in the main window menu for this session.
-            </p>
-          ) : null}
+          <h2 className="ssh-config-title" id="ssh-config-title">{dialogTitle}</h2>
         </div>
         <button
-          aria-label="Close SSH server dialog"
+          aria-label="Close server dialog"
           className="ssh-config-dismiss"
           disabled={isBusy}
           onClick={handleCancel}
@@ -1701,6 +1694,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
             <button
               aria-checked={formState.authMethod === 'privateKey'}
               className={`ssh-auth-option${formState.authMethod === 'privateKey' ? ' is-active' : ''}`}
+              disabled={isBusy}
               onClick={() => updateAuthMethod('privateKey')}
               role="radio"
               type="button"
@@ -1710,6 +1704,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
             <button
               aria-checked={formState.authMethod === 'password'}
               className={`ssh-auth-option${formState.authMethod === 'password' ? ' is-active' : ''}`}
+              disabled={isBusy}
               onClick={() => updateAuthMethod('password')}
               role="radio"
               type="button"
@@ -1742,17 +1737,11 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
             onClick={toggleOtherSettings}
             type="button"
           >
-            <span className="ssh-config-disclosure-labels">
-              <span className="ssh-config-disclosure-title">Other settings</span>
-            </span>
-            <span aria-hidden="true" className="ssh-config-disclosure-action">
-              <span className="ssh-config-disclosure-icon-shell">
-                <ChevronDown
-                  aria-hidden="true"
-                  className={`ssh-config-disclosure-icon${isOtherSettingsOpen ? ' is-open' : ''}`}
-                />
-              </span>
-            </span>
+            <span className="ssh-config-disclosure-title">Other settings</span>
+            <ChevronDown
+              aria-hidden="true"
+              className={`ssh-config-disclosure-icon${isOtherSettingsOpen ? ' is-open' : ''}`}
+            />
           </button>
           {isOtherSettingsOpen ? (
             <div className="ssh-config-disclosure-panel" id="ssh-other-settings-panel">
@@ -1827,7 +1816,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
               type="button"
             >
               <Trash2 aria-hidden="true" className="ssh-config-danger-icon" />
-              {isDeleting ? 'Deleting...' : 'Delete Server'}
+              {isDeleting ? 'Deleting...' : 'Delete server'}
             </button>
           ) : null}
           <button
@@ -1839,7 +1828,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
             Cancel
           </button>
           <button className="ssh-config-primary" disabled={isBusy} type="submit">
-            {isSaving ? 'Saving...' : isEditing ? 'Update Server' : 'Save Server'}
+            {isSaving ? 'Saving...' : isEditing ? 'Save changes' : 'Create server'}
           </button>
         </div>
       </form>

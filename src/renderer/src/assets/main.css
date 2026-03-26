@@ -1134,40 +1134,49 @@ body {
 }
 
 .ssh-config-dialog-shell {
+  --ssh-config-background: #080808;
+  --ssh-config-surface: #151515;
+  --ssh-config-surface-strong: #080808;
+  --ssh-config-surface-hover: rgba(59, 130, 246, 0.12);
+  --ssh-config-border: rgba(243, 244, 246, 0.14);
+  --ssh-config-border-strong: rgba(147, 197, 253, 0.28);
+  --ssh-config-border-active: #3b82f6;
+  --ssh-config-text: #f3f4f6;
+  --ssh-config-text-muted: rgba(243, 244, 246, 0.72);
+  --ssh-config-primary: #3b82f6;
+  --ssh-config-primary-strong: #93c5fd;
+  --ssh-config-accent: #22d3ee;
+  --ssh-config-focus-ring: rgba(59, 130, 246, 0.22);
   position: fixed;
   inset: 0;
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: 24px;
   overscroll-behavior: contain;
-  backdrop-filter: blur(16px);
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background:
-    radial-gradient(circle at top left, rgba(119, 215, 255, 0.22), transparent 36%),
-    radial-gradient(circle at bottom right, rgba(123, 242, 176, 0.16), transparent 30%),
-    rgba(3, 7, 12, 0.8);
+  background: rgba(8, 8, 8, 0.84);
 }
 
 .ssh-config-dialog {
-  width: min(560px, 100%);
-  max-height: calc(100vh - 56px);
+  width: min(520px, 100%);
+  max-height: calc(100vh - 48px);
   overflow-y: auto;
   outline: none;
 }
 
 .ssh-config-card {
   display: grid;
-  gap: 22px;
+  gap: 20px;
   max-width: 100%;
   margin: 0 auto;
   padding: 24px;
-  border: 1px solid rgba(119, 215, 255, 0.14);
-  border-radius: 22px;
-  background: rgba(8, 14, 23, 0.9);
-  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 10px;
+  background: var(--ssh-config-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
 .ssh-config-header {
@@ -1175,44 +1184,35 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ssh-config-border);
 }
 
 .ssh-config-header-main {
   display: grid;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
 }
 
-.ssh-config-eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--color-accent);
-}
-
 .ssh-config-title {
-  font-size: 28px;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-
-.ssh-config-copy {
-  font-size: 14px;
-  color: var(--color-text-muted);
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: var(--ssh-config-text);
 }
 
 .ssh-config-dismiss {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(217, 230, 248, 0.82);
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 8px;
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text-muted);
   cursor: pointer;
   transition:
     border-color 160ms ease,
@@ -1222,9 +1222,9 @@ body {
 
 .ssh-config-dismiss:hover,
 .ssh-config-dismiss:focus-visible {
-  border-color: rgba(119, 215, 255, 0.24);
-  background: rgba(255, 255, 255, 0.08);
-  color: #f5fbff;
+  border-color: var(--ssh-config-border-strong);
+  background: var(--ssh-config-surface-hover);
+  color: var(--ssh-config-text);
   outline: none;
 }
 
@@ -1241,68 +1241,70 @@ body {
 
 .ssh-config-form {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .ssh-config-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 12px;
 }
 
 .ssh-field {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 .ssh-field-note {
   padding: 12px 14px;
-  border: 1px solid rgba(119, 215, 255, 0.12);
+  border: 1px solid var(--ssh-config-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--ssh-config-surface-strong);
 }
 
 .ssh-field-label {
   font-size: 12px;
   font-weight: 600;
-  color: #d9e6f8;
+  color: var(--ssh-config-text);
 }
 
 .ssh-field-help {
-  font-size: 13px;
-  color: rgba(217, 230, 248, 0.74);
+  font-size: 12px;
+  color: var(--ssh-config-text-muted);
 }
 
 .ssh-field-input {
   width: 100%;
   min-width: 0;
-  padding: 8px 11px;
-  border: 1px solid rgba(119, 215, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--color-text);
+  padding: 9px 10px;
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 8px;
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.4;
   transition:
     border-color 160ms ease,
-    background-color 160ms ease;
+    background-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .ssh-field-input::placeholder {
-  color: rgba(148, 168, 195, 0.72);
+  color: var(--ssh-config-text-muted);
 }
 
 .ssh-field-input:focus {
   outline: none;
-  border-color: rgba(119, 215, 255, 0.42);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--ssh-config-border-active);
+  background: var(--ssh-config-surface-strong);
+  box-shadow: 0 0 0 3px var(--ssh-config-focus-ring);
 }
 
 .ssh-connection-name-row {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: stretch;
-  gap: 12px;
+  gap: 10px;
 }
 
 .ssh-icon-select {
@@ -1315,36 +1317,33 @@ body {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 46px;
+  width: 44px;
   height: 100%;
   padding: 0;
   font: inherit;
-  border: 1px solid rgba(119, 215, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(217, 230, 248, 0.82);
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 8px;
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
   cursor: pointer;
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    color 160ms ease;
 }
 
 .ssh-icon-select-trigger:hover,
 .ssh-icon-select-trigger:focus-visible,
 .ssh-icon-select.is-open .ssh-icon-select-trigger {
-  border-color: rgba(119, 215, 255, 0.3);
-  background: rgba(119, 215, 255, 0.08);
-  color: #f5fbff;
+  border-color: var(--ssh-config-border-strong);
+  background: var(--ssh-config-surface-hover);
+  color: var(--ssh-config-text);
   outline: none;
-  transform: translateY(-1px);
 }
 
 .ssh-icon-select-trigger:disabled {
   opacity: 0.6;
   cursor: wait;
-  transform: none;
 }
 
 .ssh-icon-select-trigger-glyph {
@@ -1356,23 +1355,17 @@ body {
 
 .ssh-icon-select-dropdown {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
   z-index: 10;
   display: grid;
-  gap: 10px;
-  width: min(300px, calc(100vw - 80px));
-  padding: 10px;
-  border: 1px solid rgba(119, 215, 255, 0.16);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)),
-    rgba(8, 14, 23, 0.96);
-  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.38);
-}
-
-.ssh-icon-select-search-shell {
-  position: relative;
+  gap: 8px;
+  width: min(320px, calc(100vw - 80px));
+  padding: 8px;
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 10px;
+  background: var(--ssh-config-surface);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
 }
 
 .ssh-icon-select-search-icon {
@@ -1381,42 +1374,48 @@ body {
   left: 11px;
   width: 13px;
   height: 13px;
-  color: rgba(148, 168, 195, 0.82);
+  color: var(--ssh-config-text-muted);
   transform: translateY(-50%);
   pointer-events: none;
+}
+
+.ssh-icon-select-search-shell {
+  position: relative;
 }
 
 .ssh-icon-select-search {
   width: 100%;
   min-width: 0;
   padding: 8px 11px 8px 32px;
-  border: 1px solid rgba(119, 215, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--color-text);
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 8px;
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.4;
   transition:
     border-color 160ms ease,
-    background-color 160ms ease;
+    background-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .ssh-icon-select-search::placeholder {
-  color: rgba(148, 168, 195, 0.72);
+  color: var(--ssh-config-text-muted);
 }
 
 .ssh-icon-select-search:focus {
   outline: none;
-  border-color: rgba(119, 215, 255, 0.42);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--ssh-config-border-active);
+  background: var(--ssh-config-surface-strong);
+  box-shadow: 0 0 0 3px var(--ssh-config-focus-ring);
 }
 
 .ssh-icon-select-list {
   display: grid;
-  gap: 6px;
-  max-height: 248px;
+  gap: 4px;
+  max-height: 240px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 2px;
 }
 
 .ssh-icon-select-option {
@@ -1427,35 +1426,30 @@ body {
   width: 100%;
   padding: 9px 10px;
   font: inherit;
-  border: 1px solid rgba(119, 215, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(217, 230, 248, 0.82);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ssh-config-text);
   cursor: pointer;
   text-align: left;
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    color 160ms ease;
 }
 
 .ssh-icon-select-option:hover,
 .ssh-icon-select-option:focus-visible {
-  border-color: rgba(119, 215, 255, 0.3);
-  background: rgba(119, 215, 255, 0.08);
-  color: #f5fbff;
+  border-color: var(--ssh-config-border);
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
   outline: none;
-  transform: translateY(-1px);
 }
 
 .ssh-icon-select-option.is-active {
-  border-color: rgba(119, 215, 255, 0.4);
-  background:
-    linear-gradient(180deg, rgba(119, 215, 255, 0.18), rgba(123, 242, 176, 0.08)),
-    rgba(255, 255, 255, 0.04);
-  color: #f5fbff;
-  box-shadow: inset 0 0 0 1px rgba(119, 215, 255, 0.08);
+  border-color: var(--ssh-config-border-active);
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--ssh-config-text);
 }
 
 .ssh-icon-select-option-glyph {
@@ -1479,7 +1473,7 @@ body {
   margin: 0;
   padding: 10px 4px 6px;
   font-size: 12px;
-  color: rgba(217, 230, 248, 0.74);
+  color: var(--ssh-config-text-muted);
 }
 
 .ssh-field-textarea {
@@ -1490,24 +1484,18 @@ body {
 .ssh-config-disclosure {
   display: grid;
   gap: 0;
-  border: 1px solid rgba(119, 215, 255, 0.16);
-  border-radius: 16px;
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 10px;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-    rgba(8, 14, 23, 0.82);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: var(--ssh-config-surface-strong);
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease,
     background-color 160ms ease;
 }
 
 .ssh-config-disclosure.is-open {
-  border-color: rgba(119, 215, 255, 0.28);
-  background:
-    linear-gradient(180deg, rgba(119, 215, 255, 0.12), rgba(255, 255, 255, 0.03)),
-    rgba(8, 14, 23, 0.9);
+  border-color: var(--ssh-config-border-strong);
+  background: var(--ssh-config-surface);
 }
 
 .ssh-config-disclosure-toggle {
@@ -1517,22 +1505,19 @@ body {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--ssh-config-text);
   cursor: pointer;
   text-align: left;
-  transition:
-    background-color 160ms ease,
-    box-shadow 160ms ease;
+  transition: background-color 160ms ease;
 }
 
 .ssh-config-disclosure-toggle:hover,
 .ssh-config-disclosure-toggle:focus-visible {
-  background: rgba(255, 255, 255, 0.025);
-  box-shadow: inset 0 -1px 0 rgba(119, 215, 255, 0.08);
+  background: var(--ssh-config-surface-hover);
   outline: none;
 }
 
@@ -1541,38 +1526,17 @@ body {
   cursor: wait;
 }
 
-.ssh-config-disclosure-labels {
-  display: grid;
-  gap: 2px;
-}
-
 .ssh-config-disclosure-title {
   font-size: 13px;
   font-weight: 600;
-  color: #d9e6f8;
-}
-
-.ssh-config-disclosure-action {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-
-.ssh-config-disclosure-icon-shell {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border: 1px solid rgba(119, 215, 255, 0.18);
-  border-radius: 999px;
-  background: rgba(119, 215, 255, 0.1);
+  color: var(--ssh-config-text);
 }
 
 .ssh-config-disclosure-icon {
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
-  color: rgba(217, 230, 248, 0.82);
+  color: var(--ssh-config-text-muted);
   transition: transform 160ms ease;
 }
 
@@ -1582,10 +1546,10 @@ body {
 
 .ssh-config-disclosure-panel {
   display: grid;
-  gap: 16px;
-  padding: 16px;
-  border-top: 1px solid rgba(119, 215, 255, 0.14);
-  background: rgba(255, 255, 255, 0.02);
+  gap: 14px;
+  padding: 14px 12px;
+  border-top: 1px solid var(--ssh-config-border);
+  background: var(--ssh-config-surface);
 }
 
 .ssh-file-picker {
@@ -1596,7 +1560,7 @@ body {
 }
 
 .ssh-file-picker-input {
-  font-family: inherit;
+  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
 }
 
 .ssh-file-picker-actions {
@@ -1608,14 +1572,18 @@ body {
 
 .ssh-file-picker-button,
 .ssh-file-picker-clear {
-  min-width: 92px;
+  min-width: 84px;
   padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--color-text);
+  border-radius: 8px;
+  border: 1px solid var(--ssh-config-border);
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
   cursor: pointer;
   font-size: 12px;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .ssh-file-picker-button-icon {
@@ -1632,6 +1600,16 @@ body {
   height: 15px;
 }
 
+.ssh-file-picker-button:hover,
+.ssh-file-picker-button:focus-visible,
+.ssh-file-picker-clear:hover,
+.ssh-file-picker-clear:focus-visible {
+  border-color: var(--ssh-config-border-strong);
+  background: var(--ssh-config-surface-hover);
+  color: var(--ssh-config-text);
+  outline: none;
+}
+
 .ssh-file-picker-button:disabled,
 .ssh-file-picker-clear:disabled {
   opacity: 0.6;
@@ -1639,38 +1617,52 @@ body {
 }
 
 .ssh-auth-options {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .ssh-auth-option {
   flex: 1 1 0;
-  padding: 8px 10px;
-  border: 1px solid rgba(119, 215, 255, 0.12);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(217, 230, 248, 0.82);
+  padding: 9px 10px;
+  border: 1px solid var(--ssh-config-border);
+  border-radius: 8px;
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
   cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .ssh-auth-option.is-active {
-  border-color: rgba(119, 215, 255, 0.34);
-  background: rgba(119, 215, 255, 0.14);
-  color: #f5fbff;
+  border-color: var(--ssh-config-border-active);
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--ssh-config-text);
 }
 
-.ssh-auth-option:focus-visible {
-  outline: 2px solid rgba(119, 215, 255, 0.28);
-  outline-offset: 2px;
+.ssh-auth-option:not(.is-active):hover,
+.ssh-auth-option:not(.is-active):focus-visible {
+  border-color: var(--ssh-config-border-strong);
+  background: var(--ssh-config-surface-hover);
+  outline: none;
+}
+
+.ssh-auth-option:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .ssh-config-error {
   padding: 10px 12px;
-  border: 1px solid rgba(255, 141, 137, 0.28);
-  border-radius: 12px;
-  background: rgba(255, 141, 137, 0.08);
-  color: #ffc5c2;
+  border: 1px solid rgba(34, 211, 238, 0.46);
+  border-radius: 8px;
+  background: rgba(34, 211, 238, 0.12);
+  color: var(--ssh-config-accent);
   font-size: 13px;
 }
 
@@ -1685,22 +1677,27 @@ body {
 .ssh-config-primary,
 .ssh-config-secondary {
   min-width: 96px;
-  padding: 8px 12px;
-  border-radius: 999px;
+  padding: 9px 14px;
+  border-radius: 8px;
   border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .ssh-config-danger {
   margin-right: auto;
-  border-color: rgba(255, 130, 116, 0.22);
-  background: rgba(255, 130, 116, 0.12);
-  color: #ffb9ad;
+  border-color: rgba(34, 211, 238, 0.46);
+  background: rgba(34, 211, 238, 0.12);
+  color: var(--ssh-config-accent);
 }
 
 .ssh-config-danger:disabled {
@@ -1714,9 +1711,9 @@ body {
 }
 
 .ssh-config-primary {
-  background: linear-gradient(135deg, #77d7ff 0%, #7bf2b0 100%);
-  color: #041019;
-  font-weight: 700;
+  border-color: var(--ssh-config-primary);
+  background: var(--ssh-config-primary);
+  color: var(--ssh-config-background);
 }
 
 .ssh-config-primary:disabled {
@@ -1725,9 +1722,30 @@ body {
 }
 
 .ssh-config-secondary {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--color-text);
+  border-color: var(--ssh-config-border);
+  background: var(--ssh-config-surface-strong);
+  color: var(--ssh-config-text);
+}
+
+.ssh-config-danger:hover,
+.ssh-config-danger:focus-visible {
+  border-color: var(--ssh-config-accent);
+  background: rgba(34, 211, 238, 0.18);
+  outline: none;
+}
+
+.ssh-config-primary:hover,
+.ssh-config-primary:focus-visible {
+  border-color: var(--ssh-config-primary-strong);
+  background: var(--ssh-config-primary-strong);
+  outline: none;
+}
+
+.ssh-config-secondary:hover,
+.ssh-config-secondary:focus-visible {
+  border-color: var(--ssh-config-border-strong);
+  background: var(--ssh-config-surface-hover);
+  outline: none;
 }
 
 @media (hover: none) {
@@ -1745,7 +1763,7 @@ body {
 
   .ssh-config-card {
     padding: 18px;
-    border-radius: 18px;
+    border-radius: 10px;
   }
 
   .ssh-config-header {
@@ -1760,9 +1778,13 @@ body {
     width: min(280px, calc(100vw - 64px));
   }
 
-  .ssh-auth-options,
+  .ssh-auth-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ssh-config-actions {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .ssh-file-picker-actions {
