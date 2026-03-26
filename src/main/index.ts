@@ -73,6 +73,9 @@ const sshPasswordEncryptionKey = createHash('sha256').update(sshPasswordEncrypti
 const sshRemoteCwdOscPrefix = '\u001b]633;TerminalRemoteCwd='
 const sshRemoteDirectoryListingStartPrefix = '__TERMINAL_REMOTE_DIR__'
 const sshRemoteDirectoryListingEndMarker = '__TERMINAL_REMOTE_DIR_END__'
+const sshConnectTimeoutSeconds = 10
+const sshServerAliveIntervalSeconds = 5
+const sshServerAliveCountMax = 2
 
 function ensureNodePtyHelpersExecutable(): void {
   if (process.platform === 'win32') {
@@ -650,6 +653,14 @@ function buildSshBaseArgs(config: SshServerConfig): string[] {
     args.push('-i', config.privateKeyPath, '-o', 'IdentitiesOnly=yes')
   }
 
+  args.push(
+    '-o',
+    `ConnectTimeout=${sshConnectTimeoutSeconds}`,
+    '-o',
+    `ServerAliveInterval=${sshServerAliveIntervalSeconds}`,
+    '-o',
+    `ServerAliveCountMax=${sshServerAliveCountMax}`
+  )
   args.push('-p', String(config.port))
 
   return args
@@ -671,6 +682,14 @@ function buildScpBaseArgs(config: SshServerConfig): string[] {
     args.push('-i', config.privateKeyPath, '-o', 'IdentitiesOnly=yes')
   }
 
+  args.push(
+    '-o',
+    `ConnectTimeout=${sshConnectTimeoutSeconds}`,
+    '-o',
+    `ServerAliveInterval=${sshServerAliveIntervalSeconds}`,
+    '-o',
+    `ServerAliveCountMax=${sshServerAliveCountMax}`
+  )
   args.push('-P', String(config.port))
 
   return args

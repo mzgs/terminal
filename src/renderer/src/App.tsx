@@ -2729,6 +2729,12 @@ function TerminalApp(): React.JSX.Element {
         return
       }
 
+      const shouldReconnectActiveSshTab =
+        tabId === activeTabIdRef.current &&
+        document.visibilityState === 'visible' &&
+        document.hasFocus() &&
+        (event.exitCode !== 0 || typeof event.signal === 'number')
+
       runtime.closed = true
       runtime.terminalId = null
       runtime.terminal.options.disableStdin = true
@@ -2741,13 +2747,17 @@ function TerminalApp(): React.JSX.Element {
         status: 'closed',
         terminalId: null
       }))
+
+      if (shouldReconnectActiveSshTab) {
+        reconnectSshTab(tabId)
+      }
     })
 
     return () => {
       disposeData()
       disposeExit()
     }
-  }, [queueSearchRefresh, updateTab])
+  }, [queueSearchRefresh, reconnectSshTab, updateTab])
 
   useEffect(() => {
     const disposeCwd = window.api.terminal.onCwd((event) => {
