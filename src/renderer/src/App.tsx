@@ -157,6 +157,7 @@ type TerminalColorSchemeId =
   | 'nord'
   | 'gruvbox-dark'
   | 'tokyo-night'
+  | 'tomorrow-night'
   | 'catppuccin-mocha'
   | 'one-dark'
   | 'one-light'
@@ -445,6 +446,31 @@ const rosePineTerminalTheme = {
   white: '#e0def4',
   yellow: '#f6c177'
 } satisfies ITheme
+const tomorrowNightTerminalTheme = {
+  background: '#1d1f21',
+  black: '#000000',
+  blue: '#81a2be',
+  brightBlack: '#000000',
+  brightBlue: '#81a2be',
+  brightCyan: '#8abeb7',
+  brightGreen: '#b5bd68',
+  brightMagenta: '#b294bb',
+  brightRed: '#cc6666',
+  brightWhite: '#ffffff',
+  brightYellow: '#f0c674',
+  cursor: '#c5c8c6',
+  cursorAccent: '#1d1f21',
+  cyan: '#8abeb7',
+  foreground: '#c5c8c6',
+  green: '#b5bd68',
+  magenta: '#b294bb',
+  red: '#cc6666',
+  selectionBackground: '#373b41',
+  selectionForeground: '#c5c8c6',
+  selectionInactiveBackground: '#373b41',
+  white: '#ffffff',
+  yellow: '#f0c674'
+} satisfies ITheme
 const terminalColorSchemes: TerminalColorScheme[] = [
   {
     description: 'Cool blues on a hard black base. Matches the current default.',
@@ -582,6 +608,12 @@ const terminalColorSchemes: TerminalColorScheme[] = [
       brightCyan: '#7dcfff',
       brightWhite: '#c0caf5'
     })
+  },
+  {
+    description: 'Muted retro dark palette with soft ANSI contrast from the Tomorrow set.',
+    id: 'tomorrow-night',
+    label: 'Tomorrow Night',
+    theme: tomorrowNightTerminalTheme
   },
   {
     description: 'Soft mocha neutrals with pastel accents.',
