@@ -35,7 +35,12 @@ import type { LucideIcon } from 'lucide-react'
 import { Reorder, useDragControls } from 'motion/react'
 import Modal from 'react-modal'
 import '@xterm/xterm/css/xterm.css'
-import type { AppSettings, AppStartupMode, TerminalCursorStyle } from '../../shared/settings'
+import type {
+  AppSettings,
+  AppStartupMode,
+  QuickCommand,
+  TerminalCursorStyle
+} from '../../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
 import {
   defaultSshServerIcon,
@@ -163,7 +168,7 @@ type TerminalColorSchemeId =
   | 'one-light'
   | 'monokai'
 type TerminalFontWeight = '300' | '400' | '500' | '600' | '700'
-type SettingsTabId = 'general' | 'appearance'
+type SettingsTabId = 'general' | 'appearance' | 'quickCommands'
 
 interface TerminalColorScheme {
   description: string
@@ -209,6 +214,11 @@ interface TerminalPalette {
   red: string
   white: string
   yellow: string
+}
+
+interface QuickCommandDraft {
+  command: string
+  title: string
 }
 
 const defaultTabTitle = '~'
@@ -666,7 +676,7 @@ const terminalColorSchemes: TerminalColorScheme[] = [
       selectionBackground: '#3a3f4b',
       selectionInactiveBackground: '#3a3f4b',
       white: '#abb2bf',
-      yellow: '#d19a66',
+      yellow: '#d19a66'
     } satisfies ITheme
   },
   {
@@ -1022,8 +1032,60 @@ function normalizeDefaultNewTabDirectory(
   return typeof defaultNewTabDirectory === 'string' ? defaultNewTabDirectory.trim() : ''
 }
 
+function normalizeQuickCommandTitle(title: string | null | undefined): string {
+  return typeof title === 'string' ? title.trim() : ''
+}
+
+function normalizeQuickCommandCommand(command: string | null | undefined): string {
+  return typeof command === 'string' ? command.trim() : ''
+}
+
+function normalizeQuickCommands(quickCommands: QuickCommand[] | null | undefined): QuickCommand[] {
+  if (!Array.isArray(quickCommands)) {
+    return []
+  }
+
+  const seenIds = new Set<string>()
+
+  return quickCommands
+    .map((quickCommand) => {
+      const id = typeof quickCommand.id === 'string' ? quickCommand.id.trim() : ''
+      const title = normalizeQuickCommandTitle(quickCommand.title)
+      const command = normalizeQuickCommandCommand(quickCommand.command)
+
+      if (id === '' || title === '' || command === '' || seenIds.has(id)) {
+        return null
+      }
+
+      seenIds.add(id)
+
+      return {
+        command,
+        id,
+        title
+      }
+    })
+    .filter((quickCommand): quickCommand is QuickCommand => quickCommand !== null)
+}
+
+function createQuickCommandDraft(): QuickCommandDraft {
+  return {
+    command: '',
+    title: ''
+  }
+}
+
+function createQuickCommandId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `quick-command-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function createAppSettings({
   defaultNewTabDirectory,
+  quickCommands,
   startupMode,
   terminalColorSchemeId,
   terminalCursorBlink,
@@ -1037,6 +1099,7 @@ function createAppSettings({
   terminalLineHeight
 }: {
   defaultNewTabDirectory: string
+  quickCommands: QuickCommand[]
   startupMode: AppStartupMode
   terminalColorSchemeId: TerminalColorSchemeId
   terminalCursorBlink: boolean
@@ -1054,6 +1117,7 @@ function createAppSettings({
       defaultNewTabDirectory: normalizeDefaultNewTabDirectory(defaultNewTabDirectory),
       startupMode: normalizeAppStartupMode(startupMode)
     },
+    quickCommands: normalizeQuickCommands(quickCommands),
     terminal: {
       colorSchemeId: terminalColorSchemeId,
       cursorBlink: terminalCursorBlink,
@@ -1072,6 +1136,7 @@ function createAppSettings({
 
 function getNormalizedAppSettings(settings: AppSettings): {
   defaultNewTabDirectory: string
+  quickCommands: QuickCommand[]
   startupMode: AppStartupMode
   terminalColorSchemeId: TerminalColorSchemeId
   terminalCursorBlink: boolean
@@ -1088,6 +1153,7 @@ function getNormalizedAppSettings(settings: AppSettings): {
     defaultNewTabDirectory: normalizeDefaultNewTabDirectory(
       settings.general.defaultNewTabDirectory
     ),
+    quickCommands: normalizeQuickCommands(settings.quickCommands),
     startupMode: normalizeAppStartupMode(settings.general.startupMode),
     terminalColorSchemeId: normalizeTerminalColorSchemeId(settings.terminal.colorSchemeId),
     terminalCursorBlink:
@@ -2125,6 +2191,7 @@ interface SettingsDialogProps {
   defaultNewTabDirectory: string
   onClose: () => void
   onDefaultNewTabDirectoryChange: (defaultNewTabDirectory: string) => void
+  onQuickCommandsChange: (quickCommands: QuickCommand[]) => void
   onStartupModeChange: (startupMode: AppStartupMode) => void
   onTerminalColorSchemeChange: (colorSchemeId: TerminalColorSchemeId) => void
   onTerminalCursorBlinkChange: (cursorBlink: boolean) => void
@@ -2136,6 +2203,7 @@ interface SettingsDialogProps {
   onTerminalFontSizeChange: (fontSize: number) => void
   onTerminalFontWeightChange: (fontWeight: TerminalFontWeight) => void
   onTerminalLineHeightChange: (lineHeight: number) => void
+  quickCommands: QuickCommand[]
   selectedStartupMode: AppStartupMode
   selectedTerminalColorSchemeId: TerminalColorSchemeId
   selectedTerminalCursorBlink: boolean
@@ -2874,6 +2942,293 @@ function AppearanceSettingsPanel({
   )
 }
 
+function QuickCommandsSettingsPanel({
+  onQuickCommandsChange,
+  quickCommands
+}: {
+  onQuickCommandsChange: (quickCommands: QuickCommand[]) => void
+  quickCommands: QuickCommand[]
+}): React.JSX.Element {
+  const [draft, setDraft] = useState<QuickCommandDraft>(() => createQuickCommandDraft())
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingDraft, setEditingDraft] = useState<QuickCommandDraft>(() =>
+    createQuickCommandDraft()
+  )
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!editingId) {
+      return
+    }
+
+    if (quickCommands.some((quickCommand) => quickCommand.id === editingId)) {
+      return
+    }
+
+    setEditingId(null)
+    setEditingDraft(createQuickCommandDraft())
+  }, [editingId, quickCommands])
+
+  const handleDraftChange = useCallback((field: keyof QuickCommandDraft, value: string): void => {
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      [field]: value
+    }))
+    setErrorMessage(null)
+  }, [])
+
+  const handleEditingDraftChange = useCallback(
+    (field: keyof QuickCommandDraft, value: string): void => {
+      setEditingDraft((currentDraft) => ({
+        ...currentDraft,
+        [field]: value
+      }))
+      setErrorMessage(null)
+    },
+    []
+  )
+
+  const handleAddQuickCommand = useCallback((): void => {
+    const title = normalizeQuickCommandTitle(draft.title)
+    const command = normalizeQuickCommandCommand(draft.command)
+
+    if (title === '' || command === '') {
+      setErrorMessage('Add both a title and a command.')
+      return
+    }
+
+    onQuickCommandsChange([
+      ...quickCommands,
+      {
+        command,
+        id: createQuickCommandId(),
+        title
+      }
+    ])
+    setDraft(createQuickCommandDraft())
+    setErrorMessage(null)
+  }, [draft, onQuickCommandsChange, quickCommands])
+
+  const handleStartEditing = useCallback((quickCommand: QuickCommand): void => {
+    setEditingId(quickCommand.id)
+    setEditingDraft({
+      command: quickCommand.command,
+      title: quickCommand.title
+    })
+    setErrorMessage(null)
+  }, [])
+
+  const handleCancelEditing = useCallback((): void => {
+    setEditingId(null)
+    setEditingDraft(createQuickCommandDraft())
+    setErrorMessage(null)
+  }, [])
+
+  const handleSaveQuickCommand = useCallback((): void => {
+    if (!editingId) {
+      return
+    }
+
+    const title = normalizeQuickCommandTitle(editingDraft.title)
+    const command = normalizeQuickCommandCommand(editingDraft.command)
+
+    if (title === '' || command === '') {
+      setErrorMessage('Add both a title and a command before saving.')
+      return
+    }
+
+    onQuickCommandsChange(
+      quickCommands.map((quickCommand) =>
+        quickCommand.id === editingId
+          ? {
+              ...quickCommand,
+              command,
+              title
+            }
+          : quickCommand
+      )
+    )
+    setEditingId(null)
+    setEditingDraft(createQuickCommandDraft())
+    setErrorMessage(null)
+  }, [editingDraft, editingId, onQuickCommandsChange, quickCommands])
+
+  const handleDeleteQuickCommand = useCallback(
+    (quickCommand: QuickCommand): void => {
+      const shouldDelete = window.confirm(`Delete quick command "${quickCommand.title}"?`)
+
+      if (!shouldDelete) {
+        return
+      }
+
+      onQuickCommandsChange(
+        quickCommands.filter((currentQuickCommand) => currentQuickCommand.id !== quickCommand.id)
+      )
+
+      if (editingId === quickCommand.id) {
+        setEditingId(null)
+        setEditingDraft(createQuickCommandDraft())
+      }
+
+      setErrorMessage(null)
+    },
+    [editingId, onQuickCommandsChange, quickCommands]
+  )
+
+  return (
+    <div className="settings-appearance settings-quick-commands">
+      <div className="settings-appearance-section">
+        <div className="settings-appearance-copy">
+          <h3 className="settings-appearance-title">Quick commands</h3>
+          <p className="settings-color-schemes-note">
+            Save reusable shell snippets here. Each command stays on this device and can be updated
+            later from the same table.
+          </p>
+        </div>
+        <div className="settings-table-shell">
+          <table className="settings-table">
+            <thead>
+              <tr>
+                <th scope="col">Title</th>
+                <th scope="col">Command</th>
+                <th className="settings-table-actions-heading" scope="col">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="settings-table-row settings-table-row--editor">
+                <td>
+                  <input
+                    aria-label="Quick command title"
+                    className="settings-field-input settings-table-input"
+                    onChange={(event) => handleDraftChange('title', event.target.value)}
+                    placeholder="Restart API"
+                    type="text"
+                    value={draft.title}
+                  />
+                </td>
+                <td>
+                  <input
+                    aria-label="Quick command"
+                    className="settings-field-input settings-table-input settings-table-input--command"
+                    onChange={(event) => handleDraftChange('command', event.target.value)}
+                    placeholder="npm run dev"
+                    type="text"
+                    value={draft.command}
+                  />
+                </td>
+                <td className="settings-table-actions-cell">
+                  <div className="settings-table-actions">
+                    <button
+                      className="settings-table-action-button is-primary"
+                      onClick={handleAddQuickCommand}
+                      type="button"
+                    >
+                      <CirclePlus aria-hidden="true" className="settings-table-action-icon" />
+                      Add
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              {quickCommands.length === 0 ? (
+                <tr>
+                  <td className="settings-table-empty-cell" colSpan={3}>
+                    <p className="settings-table-empty">No quick commands saved yet.</p>
+                  </td>
+                </tr>
+              ) : (
+                quickCommands.map((quickCommand) => {
+                  const isEditing = quickCommand.id === editingId
+
+                  return (
+                    <tr className="settings-table-row" key={quickCommand.id}>
+                      <td>
+                        {isEditing ? (
+                          <input
+                            aria-label={`Edit title for ${quickCommand.title}`}
+                            className="settings-field-input settings-table-input"
+                            onChange={(event) =>
+                              handleEditingDraftChange('title', event.target.value)
+                            }
+                            type="text"
+                            value={editingDraft.title}
+                          />
+                        ) : (
+                          <span className="settings-table-title">{quickCommand.title}</span>
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input
+                            aria-label={`Edit command for ${quickCommand.title}`}
+                            className="settings-field-input settings-table-input settings-table-input--command"
+                            onChange={(event) =>
+                              handleEditingDraftChange('command', event.target.value)
+                            }
+                            type="text"
+                            value={editingDraft.command}
+                          />
+                        ) : (
+                          <code className="settings-table-command">{quickCommand.command}</code>
+                        )}
+                      </td>
+                      <td className="settings-table-actions-cell">
+                        <div className="settings-table-actions">
+                          {isEditing ? (
+                            <>
+                              <button
+                                className="settings-table-action-button is-primary"
+                                onClick={handleSaveQuickCommand}
+                                type="button"
+                              >
+                                <Check aria-hidden="true" className="settings-table-action-icon" />
+                                Save
+                              </button>
+                              <button
+                                className="settings-table-action-button"
+                                onClick={handleCancelEditing}
+                                type="button"
+                              >
+                                <X aria-hidden="true" className="settings-table-action-icon" />
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="settings-table-action-button"
+                                onClick={() => handleStartEditing(quickCommand)}
+                                type="button"
+                              >
+                                <Pencil aria-hidden="true" className="settings-table-action-icon" />
+                                Edit
+                              </button>
+                              <button
+                                className="settings-table-action-button is-danger"
+                                onClick={() => handleDeleteQuickCommand(quickCommand)}
+                                type="button"
+                              >
+                                <Trash2 aria-hidden="true" className="settings-table-action-icon" />
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        {errorMessage ? <p className="settings-table-error">{errorMessage}</p> : null}
+      </div>
+    </div>
+  )
+}
+
 function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React.JSX.Element {
   const isEditing = serverConfig !== null
   const dialogTitle = isEditing ? 'Edit server' : 'Add server'
@@ -3274,6 +3629,7 @@ function SettingsDialog({
   defaultNewTabDirectory,
   onClose,
   onDefaultNewTabDirectoryChange,
+  onQuickCommandsChange,
   onStartupModeChange,
   onTerminalColorSchemeChange,
   onTerminalCursorBlinkChange,
@@ -3285,6 +3641,7 @@ function SettingsDialog({
   onTerminalFontSizeChange,
   onTerminalFontWeightChange,
   onTerminalLineHeightChange,
+  quickCommands,
   selectedStartupMode,
   selectedTerminalColorSchemeId,
   selectedTerminalCursorBlink,
@@ -3301,6 +3658,7 @@ function SettingsDialog({
   const [activeTabId, setActiveTabId] = useState<SettingsTabId>('general')
   const generalTabId = `${titleId}-tab-general`
   const appearanceTabId = `${titleId}-tab-appearance`
+  const quickCommandsTabId = `${titleId}-tab-quick-commands`
   const panelId = `${titleId}-panel`
   const settingsTabs: Array<{
     icon: LucideIcon
@@ -3319,8 +3677,16 @@ function SettingsDialog({
       id: 'appearance',
       label: 'Appearance',
       tabId: appearanceTabId
+    },
+    {
+      icon: FileTerminal,
+      id: 'quickCommands',
+      label: 'Quick Commands',
+      tabId: quickCommandsTabId
     }
   ]
+  const activeSettingsTabId =
+    settingsTabs.find((settingsTab) => settingsTab.id === activeTabId)?.tabId ?? generalTabId
 
   return (
     <Modal
@@ -3368,7 +3734,7 @@ function SettingsDialog({
         ))}
       </div>
       <section
-        aria-labelledby={activeTabId === 'general' ? generalTabId : appearanceTabId}
+        aria-labelledby={activeSettingsTabId}
         className="settings-panel is-active"
         id={panelId}
         role="tabpanel"
@@ -3388,7 +3754,7 @@ function SettingsDialog({
             selectedTerminalCursorWidth={selectedTerminalCursorWidth}
             selectedTerminalLineHeight={selectedTerminalLineHeight}
           />
-        ) : (
+        ) : activeTabId === 'appearance' ? (
           <AppearanceSettingsPanel
             availableTerminalFontOptions={availableTerminalFontOptions}
             onTerminalColorSchemeChange={onTerminalColorSchemeChange}
@@ -3406,6 +3772,11 @@ function SettingsDialog({
             selectedTerminalFontSize={selectedTerminalFontSize}
             selectedTerminalFontWeight={selectedTerminalFontWeight}
             selectedTerminalLineHeight={selectedTerminalLineHeight}
+          />
+        ) : (
+          <QuickCommandsSettingsPanel
+            onQuickCommandsChange={onQuickCommandsChange}
+            quickCommands={quickCommands}
           />
         )}
       </section>
@@ -3436,6 +3807,7 @@ function TerminalApp(): React.JSX.Element {
   const [sshUploadProgress, setSshUploadProgress] = useState<SshUploadProgressEvent | null>(null)
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false)
   const [defaultNewTabDirectory, setDefaultNewTabDirectory] = useState('')
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
   const [selectedStartupMode, setSelectedStartupMode] =
     useState<AppStartupMode>(defaultAppStartupMode)
   const [selectedTerminalColorSchemeId, setSelectedTerminalColorSchemeId] =
@@ -3522,6 +3894,7 @@ function TerminalApp(): React.JSX.Element {
       const normalizedSettings = getNormalizedAppSettings(settings)
 
       setDefaultNewTabDirectory(normalizedSettings.defaultNewTabDirectory)
+      setQuickCommands(normalizedSettings.quickCommands)
       setSelectedStartupMode(normalizedSettings.startupMode)
       setSelectedTerminalColorSchemeId(normalizedSettings.terminalColorSchemeId)
       setSelectedTerminalCursorBlink(normalizedSettings.terminalCursorBlink)
@@ -4564,6 +4937,7 @@ function TerminalApp(): React.JSX.Element {
       .save(
         createAppSettings({
           defaultNewTabDirectory,
+          quickCommands,
           startupMode: selectedStartupMode,
           terminalColorSchemeId: selectedTerminalColorSchemeId,
           terminalCursorBlink: selectedTerminalCursorBlink,
@@ -4583,6 +4957,7 @@ function TerminalApp(): React.JSX.Element {
   }, [
     defaultNewTabDirectory,
     hasHydratedSettings,
+    quickCommands,
     selectedStartupMode,
     selectedTerminalColorSchemeId,
     selectedTerminalCursorBlink,
@@ -6791,6 +7166,7 @@ function TerminalApp(): React.JSX.Element {
           defaultNewTabDirectory={defaultNewTabDirectory}
           onClose={handleCloseSettingsDialog}
           onDefaultNewTabDirectoryChange={setDefaultNewTabDirectory}
+          onQuickCommandsChange={setQuickCommands}
           onStartupModeChange={setSelectedStartupMode}
           onTerminalColorSchemeChange={setSelectedTerminalColorSchemeId}
           onTerminalCursorBlinkChange={setSelectedTerminalCursorBlink}
@@ -6802,6 +7178,7 @@ function TerminalApp(): React.JSX.Element {
           onTerminalFontSizeChange={setSelectedTerminalFontSize}
           onTerminalFontWeightChange={setSelectedTerminalFontWeight}
           onTerminalLineHeightChange={setSelectedTerminalLineHeight}
+          quickCommands={quickCommands}
           selectedStartupMode={selectedStartupMode}
           selectedTerminalColorSchemeId={selectedTerminalColorSchemeId}
           selectedTerminalCursorBlink={selectedTerminalCursorBlink}

@@ -18,7 +18,12 @@ import { spawn, type IPty } from 'node-pty'
 import SftpClient from 'ssh2-sftp-client'
 import type { ConnectConfig } from 'ssh2'
 import icon from '../../resources/icon.png?asset'
-import type { AppSettings, AppStartupMode, TerminalCursorStyle } from '../shared/settings'
+import type {
+  AppSettings,
+  AppStartupMode,
+  QuickCommand,
+  TerminalCursorStyle
+} from '../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
 import {
   normalizeSshServerIcon,
@@ -1624,6 +1629,38 @@ function clampTerminalLineHeight(lineHeight: number): number {
   return Math.round(clampedLineHeight * 100) / 100
 }
 
+function parsePersistedQuickCommand(value: unknown, seenIds: Set<string>): QuickCommand | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+
+  if (
+    typeof record.id !== 'string' ||
+    typeof record.title !== 'string' ||
+    typeof record.command !== 'string'
+  ) {
+    return null
+  }
+
+  const id = record.id.trim()
+  const title = record.title.trim()
+  const command = record.command.trim()
+
+  if (id === '' || title === '' || command === '' || seenIds.has(id)) {
+    return null
+  }
+
+  seenIds.add(id)
+
+  return {
+    command,
+    id,
+    title
+  }
+}
+
 function parsePersistedSettings(value: unknown): AppSettings | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -1648,6 +1685,15 @@ function parsePersistedSettings(value: unknown): AppSettings | null {
   const cursorBlinkValue = parseSettingBoolean(terminalRecord.cursorBlink)
   const startupModeValue = generalRecord?.startupMode
   const defaultNewTabDirectoryValue = generalRecord?.defaultNewTabDirectory
+  const quickCommands = Array.isArray(record.quickCommands)
+    ? (() => {
+        const seenIds = new Set<string>()
+
+        return record.quickCommands
+          .map((quickCommand) => parsePersistedQuickCommand(quickCommand, seenIds))
+          .filter((quickCommand): quickCommand is QuickCommand => quickCommand !== null)
+      })()
+    : []
 
   if (
     typeof terminalRecord.colorSchemeId !== 'string' ||
@@ -1678,6 +1724,7 @@ function parsePersistedSettings(value: unknown): AppSettings | null {
         typeof defaultNewTabDirectoryValue === 'string' ? defaultNewTabDirectoryValue.trim() : '',
       startupMode
     },
+    quickCommands,
     terminal: {
       colorSchemeId: terminalRecord.colorSchemeId.trim(),
       cursorBlink: cursorBlinkValue ?? defaultTerminalCursorBlink,

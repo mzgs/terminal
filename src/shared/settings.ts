@@ -19,8 +19,15 @@ export interface TerminalAppearanceSettings {
   lineHeight: number
 }
 
+export interface QuickCommand {
+  command: string
+  id: string
+  title: string
+}
+
 export interface AppSettings {
   general: GeneralSettings
+  quickCommands: QuickCommand[]
   terminal: TerminalAppearanceSettings
   version: 1
 }
