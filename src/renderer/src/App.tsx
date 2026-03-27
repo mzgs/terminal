@@ -527,13 +527,18 @@ const defaultTerminalColorScheme = terminalColorSchemes[0]
 const terminalColorSchemesById = new Map<TerminalColorSchemeId, TerminalColorScheme>(
   terminalColorSchemes.map((colorScheme) => [colorScheme.id, colorScheme])
 )
-const bundledTerminalFontFamilies = [
-  'JetBrains Mono Variable',
+const terminalFontFamilies = [
   'Fira Code Variable',
+  'JetBrains Mono Variable',
   'Cascadia Code Variable',
-  'IBM Plex Mono'
+  'Hack',
+  'Source Code Pro Variable',
+  'Inconsolata Variable',
+  'IBM Plex Mono',
+  'Ubuntu Mono',
+  'DejaVu Mono'
 ] as const
-const defaultTerminalFontFamilyId = bundledTerminalFontFamilies[0]
+const defaultTerminalFontFamilyId = 'JetBrains Mono Variable'
 const defaultTerminalFontSize = 14
 const terminalFontWeightOptions: TerminalFontWeightOption[] = [
   { description: 'Light', label: '300', value: '300' },
@@ -546,7 +551,10 @@ const defaultTerminalFontWeight = terminalFontWeightOptions[1]?.value ?? '400'
 const terminalFontWeightOptionsByValue = new Map<TerminalFontWeight, TerminalFontWeightOption>(
   terminalFontWeightOptions.map((fontWeightOption) => [fontWeightOption.value, fontWeightOption])
 )
-const bundledTerminalFontFamilyIds = new Set<TerminalFontFamilyId>(bundledTerminalFontFamilies)
+const terminalFontFamilyIds = new Set<TerminalFontFamilyId>(terminalFontFamilies)
+const terminalFontLabelOverrides: Record<string, string> = {
+  'DejaVu Mono': 'DejaVu Sans Mono'
+}
 
 function getSearchTerminalTheme(theme: ITheme): ITheme {
   return {
@@ -574,10 +582,7 @@ function clampTerminalFontSize(fontSize: number): number {
 function normalizeTerminalFontFamilyId(
   fontFamilyId: string | null | undefined
 ): TerminalFontFamilyId {
-  if (
-    fontFamilyId &&
-    bundledTerminalFontFamilyIds.has(fontFamilyId.trim() as TerminalFontFamilyId)
-  ) {
+  if (fontFamilyId && terminalFontFamilyIds.has(fontFamilyId.trim() as TerminalFontFamilyId)) {
     return fontFamilyId.trim()
   }
 
@@ -640,12 +645,13 @@ function createTerminalFontOption(fontFamilyId: TerminalFontFamilyId): TerminalF
   return {
     fontFamily: getTerminalFontFamilyCss(fontFamilyId),
     id: fontFamilyId,
-    label: fontFamilyId.replace(/\s+Variable$/i, '')
+    label:
+      terminalFontLabelOverrides[fontFamilyId] ?? fontFamilyId.replace(/\s+Variable$/i, '')
   }
 }
 
 const defaultTerminalFontOption = createTerminalFontOption(defaultTerminalFontFamilyId)
-const bundledTerminalFontOptions = bundledTerminalFontFamilies.map((fontFamily) =>
+const bundledTerminalFontOptions = terminalFontFamilies.map((fontFamily) =>
   createTerminalFontOption(fontFamily)
 )
 const sshServerIconLabelOverrides: Record<string, string> = {
