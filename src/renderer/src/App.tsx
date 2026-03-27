@@ -868,6 +868,7 @@ const terminalOptions = {
 
 const defaultSshConfigInput: SshServerConfigInput = {
   authMethod: 'privateKey',
+  defaultRemoteStartPath: '',
   description: '',
   host: '',
   icon: defaultRendererSshServerIcon,
@@ -1707,6 +1708,7 @@ function createSshConfigFormState(
 
   return {
     authMethod: serverConfig.authMethod,
+    defaultRemoteStartPath: serverConfig.defaultRemoteStartPath,
     description: serverConfig.description,
     host: serverConfig.host,
     icon: sshServerIconOptionsByValue.has(serverConfig.icon)
@@ -2319,7 +2321,11 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isOtherSettingsOpen, setIsOtherSettingsOpen] = useState(() =>
-    Boolean(serverConfig?.description || serverConfig?.privateKeyPath)
+    Boolean(
+      serverConfig?.defaultRemoteStartPath ||
+      serverConfig?.description ||
+      serverConfig?.privateKeyPath
+    )
   )
   const connectionNameInputId = useId()
   const sshKeyFileInputRef = useRef<HTMLInputElement>(null)
@@ -2406,6 +2412,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
 
       const normalizedFormState: SshServerConfigInput = {
         ...formState,
+        defaultRemoteStartPath: formState.defaultRemoteStartPath.trim(),
         description: formState.description.trim(),
         host: formState.host.trim(),
         name: formState.name.trim(),
@@ -2643,6 +2650,19 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
                   </span>
                 </div>
               ) : null}
+              <label className="ssh-field">
+                <span className="ssh-field-label">Default remote start path</span>
+                <input
+                  className="ssh-field-input"
+                  onChange={(event) => updateField('defaultRemoteStartPath', event.target.value)}
+                  placeholder="~/project"
+                  type="text"
+                  value={formState.defaultRemoteStartPath}
+                />
+                <span className="ssh-field-help">
+                  Leave blank to use the remote shell default when opening new SSH tabs.
+                </span>
+              </label>
               <label className="ssh-field">
                 <span className="ssh-field-label">Description</span>
                 <textarea

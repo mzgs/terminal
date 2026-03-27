@@ -1,11 +1,4 @@
-import {
-  app,
-  shell,
-  screen,
-  BrowserWindow,
-  ipcMain,
-  type WebContents
-} from 'electron'
+import { app, shell, screen, BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { execFile, execFileSync } from 'node:child_process'
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
@@ -599,6 +592,8 @@ function parsePersistedSshServerConfig(value: unknown): SshServerConfig | null {
   return {
     id: record.id,
     authMethod: record.authMethod,
+    defaultRemoteStartPath:
+      typeof record.defaultRemoteStartPath === 'string' ? record.defaultRemoteStartPath.trim() : '',
     description: record.description.trim(),
     host: record.host.trim(),
     icon: normalizeSshServerIcon(record.icon),
@@ -1928,8 +1923,13 @@ function buildSshTerminalCreateOptions(
   const sshPath = resolveExecutablePath('ssh')
   const args = buildSshBaseArgs(config)
   const env = getSshCommandEnv(password)
+  const remoteStartPath = cwd?.trim() || config.defaultRemoteStartPath.trim() || undefined
 
-  args.push('-tt', `${config.username}@${config.host}`, buildInteractiveSshRemoteCommand(cwd))
+  args.push(
+    '-tt',
+    `${config.username}@${config.host}`,
+    buildInteractiveSshRemoteCommand(remoteStartPath)
+  )
 
   return {
     args,
@@ -2190,6 +2190,7 @@ function createMainWindow(): BrowserWindow {
 function normalizeSshConfigInput(config: SshServerConfigInput): SshServerConfigInput {
   return {
     authMethod: config.authMethod,
+    defaultRemoteStartPath: config.defaultRemoteStartPath.trim(),
     description: config.description.trim(),
     host: config.host.trim(),
     icon: normalizeSshServerIcon(config.icon),

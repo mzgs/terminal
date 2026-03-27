@@ -20,6 +20,7 @@ export interface SshRemoteDirectoryListing {
 
 export interface SshServerConfigInput {
   authMethod: SshAuthMethod
+  defaultRemoteStartPath: string
   description: string
   host: string
   icon: SshServerIcon
