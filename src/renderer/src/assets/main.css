@@ -1148,6 +1148,172 @@ body {
   }
 }
 
+.quick-open-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  display: grid;
+  place-items: start center;
+  padding: 72px 20px 24px;
+  background: rgba(4, 8, 14, 0.7);
+}
+
+.quick-open-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(680px, 100%);
+  max-height: min(520px, calc(100vh - 96px));
+  overflow: hidden;
+  border: 1px solid rgba(119, 215, 255, 0.16);
+  border-radius: 10px;
+  background: #0b111a;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+  outline: none;
+}
+
+.quick-open-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(119, 215, 255, 0.1);
+}
+
+.quick-open-search-icon,
+.quick-open-item-icon {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.1;
+}
+
+.quick-open-search-icon {
+  flex: 0 0 auto;
+  color: rgba(181, 198, 220, 0.72);
+}
+
+.quick-open-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  outline: none;
+}
+
+.quick-open-input::placeholder {
+  color: rgba(181, 198, 220, 0.52);
+}
+
+.quick-open-trigger,
+.quick-open-item-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.quick-open-kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 236, 247, 0.84);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.quick-open-results {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.quick-open-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.quick-open-item:hover,
+.quick-open-item:focus-visible,
+.quick-open-item.is-selected {
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.quick-open-item.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.quick-open-item-icon-shell {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(181, 198, 220, 0.82);
+}
+
+.quick-open-item.is-selected .quick-open-item-icon-shell {
+  border-color: rgba(119, 215, 255, 0.18);
+  background: rgba(119, 215, 255, 0.08);
+  color: var(--color-text);
+}
+
+.quick-open-item-copy {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.quick-open-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.quick-open-item-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.quick-open-item-description {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.quick-open-empty {
+  padding: 20px 12px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
 .ssh-config-dialog-shell {
   --ssh-config-background: #121212;
   --ssh-config-surface: #1e1e1e;
@@ -2479,6 +2645,26 @@ body {
 }
 
 @media (max-width: 640px) {
+  .quick-open-shell {
+    place-items: start stretch;
+    padding: 16px 12px 12px;
+  }
+
+  .quick-open-dialog {
+    width: 100%;
+    max-height: calc(100vh - 28px);
+  }
+
+  .quick-open-trigger {
+    display: none;
+  }
+
+  .quick-open-item-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
   .settings-dialog-shell,
   .ssh-config-dialog-shell {
     padding: 16px;

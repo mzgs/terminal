@@ -221,6 +221,17 @@ interface QuickCommandDraft {
   title: string
 }
 
+interface QuickOpenCommandItem {
+  action: () => void
+  description: string
+  disabled?: boolean
+  icon: LucideIcon
+  id: string
+  keywords: string[]
+  shortcut: string[]
+  title: string
+}
+
 const defaultTabTitle = '~'
 const maxPersistedTerminalOutputLines = 500
 const minTerminalFontSize = 10
@@ -1081,6 +1092,137 @@ function createQuickCommandId(): string {
   }
 
   return `quick-command-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function normalizeQuickOpenQuery(query: string): string {
+  return query.trim().toLowerCase()
+}
+
+function getQuickOpenTokens(candidate: string): string[] {
+  return candidate.split(/[^a-z0-9]+/).filter((token) => token !== '')
+}
+
+function getQuickOpenSubstringScore(candidate: string, query: string, baseScore: number): number {
+  const matchIndex = candidate.indexOf(query)
+
+  if (matchIndex === -1) {
+    return -1
+  }
+
+  const isWordBoundaryMatch = matchIndex === 0 || /[^a-z0-9]/.test(candidate[matchIndex - 1] ?? '')
+
+  return (
+    baseScore +
+    (isWordBoundaryMatch ? 18 : 0) -
+    Math.min(matchIndex, 12) -
+    Math.min(candidate.length - query.length, 10)
+  )
+}
+
+function getQuickOpenTokenPrefixScore(candidate: string, query: string, baseScore: number): number {
+  const tokens = getQuickOpenTokens(candidate)
+  let bestScore = -1
+
+  for (const [tokenIndex, token] of tokens.entries()) {
+    if (!token.startsWith(query)) {
+      continue
+    }
+
+    bestScore = Math.max(
+      bestScore,
+      baseScore - tokenIndex * 2 - Math.min(token.length - query.length, 8)
+    )
+  }
+
+  return bestScore
+}
+
+function getQuickOpenAcronymScore(candidate: string, query: string, baseScore: number): number {
+  const tokens = getQuickOpenTokens(candidate)
+
+  if (tokens.length < 2) {
+    return -1
+  }
+
+  const acronym = tokens.map((token) => token[0]).join('')
+
+  if (!acronym.startsWith(query)) {
+    return -1
+  }
+
+  return baseScore - Math.min(acronym.length - query.length, 4)
+}
+
+function getQuickOpenTokenFuzzyScore(candidate: string, query: string, baseScore: number): number {
+  const tokens = getQuickOpenTokens(candidate)
+  let bestScore = -1
+
+  for (const token of tokens) {
+    let consecutiveCharacters = 0
+    let gapPenalty = 0
+    let lastMatchIndex = -1
+    let searchStartIndex = 0
+    let score = baseScore - Math.min(token.length - query.length, 8)
+    let hasMatched = true
+
+    for (const character of query) {
+      const matchIndex = token.indexOf(character, searchStartIndex)
+
+      if (matchIndex === -1) {
+        hasMatched = false
+        break
+      }
+
+      if (lastMatchIndex === -1) {
+        gapPenalty += matchIndex
+        consecutiveCharacters = 1
+      } else {
+        const gapSize = matchIndex - lastMatchIndex - 1
+        gapPenalty += gapSize
+        consecutiveCharacters = gapSize === 0 ? consecutiveCharacters + 1 : 1
+      }
+
+      score += 4 + Math.min(consecutiveCharacters, 4)
+      lastMatchIndex = matchIndex
+      searchStartIndex = matchIndex + 1
+    }
+
+    if (!hasMatched) {
+      continue
+    }
+
+    bestScore = Math.max(bestScore, score - gapPenalty * 3)
+  }
+
+  return bestScore
+}
+
+function getQuickOpenCommandScore(command: QuickOpenCommandItem, query: string): number {
+  if (query === '') {
+    return 0
+  }
+
+  const normalizedTitle = normalizeQuickOpenQuery(command.title)
+  const normalizedDescription = normalizeQuickOpenQuery(command.description)
+  const normalizedKeywords = command.keywords.map((keyword) => normalizeQuickOpenQuery(keyword))
+  const compactTitle = getQuickOpenTokens(normalizedTitle).join('')
+  const compactKeywords = normalizedKeywords.map((keyword) => getQuickOpenTokens(keyword).join(''))
+
+  return Math.max(
+    getQuickOpenSubstringScore(normalizedTitle, query, 420),
+    getQuickOpenTokenPrefixScore(normalizedTitle, query, 380),
+    getQuickOpenTokenFuzzyScore(normalizedTitle, query, 320),
+    getQuickOpenSubstringScore(compactTitle, query, 300),
+    getQuickOpenAcronymScore(normalizedTitle, query, 260),
+    getQuickOpenSubstringScore(normalizedDescription, query, 180),
+    ...normalizedKeywords.flatMap((keyword, index) => [
+      getQuickOpenSubstringScore(keyword, query, 340 - index * 4),
+      getQuickOpenTokenPrefixScore(keyword, query, 300 - index * 4),
+      getQuickOpenTokenFuzzyScore(keyword, query, 250 - index * 4),
+      getQuickOpenSubstringScore(compactKeywords[index] ?? '', query, 220 - index * 4),
+      getQuickOpenAcronymScore(keyword, query, 200 - index * 4)
+    ])
+  )
 }
 
 function createAppSettings({
@@ -3807,6 +3949,9 @@ function TerminalApp(): React.JSX.Element {
     null
   )
   const [sshUploadProgress, setSshUploadProgress] = useState<SshUploadProgressEvent | null>(null)
+  const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false)
+  const [quickOpenQuery, setQuickOpenQuery] = useState('')
+  const [quickOpenSelectedIndex, setQuickOpenSelectedIndex] = useState(0)
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false)
   const [defaultNewTabDirectory, setDefaultNewTabDirectory] = useState('')
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
@@ -3856,6 +4001,7 @@ function TerminalApp(): React.JSX.Element {
   const searchMatchesRef = useRef<SearchMatch[]>([])
   const searchRefreshTimeoutRef = useRef<number | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const quickOpenInputRef = useRef<HTMLInputElement>(null)
   const searchResultIndexRef = useRef(-1)
   const searchQueryRef = useRef('')
   const sshBrowserResizePointerIdRef = useRef<number | null>(null)
@@ -4275,6 +4421,84 @@ function TerminalApp(): React.JSX.Element {
     setIsSearchOpen(false)
     focusActiveTerminal()
   }, [cancelQueuedSearchRefresh, clearSearchSelection, focusActiveTerminal, resetSearchResults])
+
+  const restorePrimaryFocus = useCallback((): void => {
+    if (isSearchOpenRef.current) {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+      return
+    }
+
+    focusActiveTerminal()
+  }, [focusActiveTerminal])
+
+  const openQuickOpen = useCallback((): void => {
+    setIsSshMenuOpen(false)
+    closeTerminalContextMenu()
+    closeSshBrowserContextMenu()
+
+    if (isQuickOpenOpen) {
+      window.requestAnimationFrame(() => {
+        quickOpenInputRef.current?.focus()
+        quickOpenInputRef.current?.select()
+      })
+      return
+    }
+
+    setQuickOpenQuery('')
+    setQuickOpenSelectedIndex(0)
+    setIsQuickOpenOpen(true)
+  }, [
+    closeSshBrowserContextMenu,
+    closeTerminalContextMenu,
+    isQuickOpenOpen,
+    quickOpenInputRef
+  ])
+
+  const closeQuickOpen = useCallback(
+    (shouldRestoreFocus = true): void => {
+      setQuickOpenQuery('')
+      setQuickOpenSelectedIndex(0)
+      setIsQuickOpenOpen(false)
+
+      if (!shouldRestoreFocus) {
+        return
+      }
+
+      window.requestAnimationFrame(() => {
+        restorePrimaryFocus()
+      })
+    },
+    [restorePrimaryFocus]
+  )
+
+  const clearTerminalContent = useCallback(
+    (tabId: string): void => {
+      const runtime = runtimesRef.current.get(tabId)
+
+      if (!runtime || runtime.disposed) {
+        return
+      }
+
+      runtime.terminal.focus()
+      runtime.terminal.clear()
+
+      if (activeTabIdRef.current === tabId && isSearchOpenRef.current) {
+        queueSearchRefresh(tabId, 0)
+      }
+    },
+    [queueSearchRefresh]
+  )
+
+  const clearActiveTerminalContent = useCallback((): void => {
+    const currentActiveTabId = activeTabIdRef.current
+
+    if (!currentActiveTabId) {
+      return
+    }
+
+    clearTerminalContent(currentActiveTabId)
+  }, [clearTerminalContent])
 
   const findNextMatch = useCallback((): void => {
     const activeTabId = activeTabIdRef.current
@@ -5315,7 +5539,7 @@ function TerminalApp(): React.JSX.Element {
 
   useEffect(() => {
     const disposeFindRequested = window.api.terminal.onFindRequested(() => {
-      if (isSshConfigDialogOpen || isSettingsDialogOpen) {
+      if (isQuickOpenOpen || isSshConfigDialogOpen || isSettingsDialogOpen) {
         return
       }
 
@@ -5336,15 +5560,37 @@ function TerminalApp(): React.JSX.Element {
     return () => {
       disposeFindRequested()
     }
-  }, [isSettingsDialogOpen, isSshConfigDialogOpen, openSearch])
+  }, [isQuickOpenOpen, isSettingsDialogOpen, isSshConfigDialogOpen, openSearch])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (isSettingsDialogOpen) {
+      const usesPrimaryModifier = event.metaKey || event.ctrlKey
+      const activeElement = document.activeElement
+      const isSearchInputTarget = searchInputRef.current === activeElement
+      const isQuickOpenInputTarget = quickOpenInputRef.current === activeElement
+
+      if (usesPrimaryModifier && event.key.toLowerCase() === 'p') {
+        if (isSettingsDialogOpen || isSshConfigDialogOpen) {
+          return
+        }
+
+        if (
+          isEditableElement(activeElement) &&
+          !isSearchInputTarget &&
+          !isQuickOpenInputTarget &&
+          !isXtermHelperTextarea(activeElement)
+        ) {
+          return
+        }
+
+        event.preventDefault()
+        openQuickOpen()
         return
       }
 
-      const usesPrimaryModifier = event.metaKey || event.ctrlKey
+      if (isQuickOpenOpen || isSettingsDialogOpen || isSshConfigDialogOpen) {
+        return
+      }
 
       if (usesPrimaryModifier && event.key.toLowerCase() === 't') {
         event.preventDefault()
@@ -5364,7 +5610,7 @@ function TerminalApp(): React.JSX.Element {
         return
       }
 
-      if (event.metaKey && (event.key === ',' || event.code === 'Comma')) {
+      if (usesPrimaryModifier && (event.key === ',' || event.code === 'Comma')) {
         event.preventDefault()
         setIsSshMenuOpen(false)
         setIsSettingsDialogOpen(true)
@@ -5406,7 +5652,47 @@ function TerminalApp(): React.JSX.Element {
     return () => {
       window.removeEventListener('keydown', onKeyDown, { capture: true })
     }
-  }, [activateTab, closeTab, createTab, isSettingsDialogOpen, selectAdjacentTab])
+  }, [
+    activateTab,
+    closeTab,
+    createTab,
+    isQuickOpenOpen,
+    isSettingsDialogOpen,
+    isSshConfigDialogOpen,
+    openQuickOpen,
+    selectAdjacentTab
+  ])
+
+  useEffect(() => {
+    if (!isQuickOpenOpen) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      quickOpenInputRef.current?.focus()
+      quickOpenInputRef.current?.select()
+    })
+  }, [isQuickOpenOpen])
+
+  useEffect(() => {
+    if (!isQuickOpenOpen) {
+      return
+    }
+
+    setQuickOpenSelectedIndex(0)
+  }, [isQuickOpenOpen, quickOpenQuery])
+
+  useEffect(() => {
+    if (!isQuickOpenOpen) {
+      return
+    }
+
+    if (!isSettingsDialogOpen && !isSshConfigDialogOpen) {
+      return
+    }
+
+    closeQuickOpen(false)
+  }, [closeQuickOpen, isQuickOpenOpen, isSettingsDialogOpen, isSshConfigDialogOpen])
 
   useEffect(() => {
     if (!isSearchOpen) {
@@ -5879,6 +6165,98 @@ function TerminalApp(): React.JSX.Element {
     : activeLocalTabCwd
       ? `Open ${activeLocalTabCwd}`
       : 'Current folder is not available yet'
+  const primaryModifierLabel = platformClassName === 'platform-macos' ? 'Cmd' : 'Ctrl'
+  const quickOpenCommands: QuickOpenCommandItem[] = [
+    {
+      action: handleOpenSettingsDialog,
+      description: 'Open application settings.',
+      icon: Settings,
+      id: 'settings',
+      keywords: ['settings', 'preferences', 'config', 'options'],
+      shortcut: [primaryModifierLabel, ','],
+      title: 'Settings'
+    },
+    {
+      action: createTab,
+      description: 'Create a new local terminal tab.',
+      icon: Plus,
+      id: 'new-tab',
+      keywords: ['new', 'new tab', 'tab', 'terminal', 'shell', 'nwe', 'nwe tab'],
+      shortcut: [primaryModifierLabel, 'T'],
+      title: 'New Tab'
+    },
+    {
+      action: clearActiveTerminalContent,
+      description: 'Clear the visible terminal output in the current tab.',
+      disabled: activeTabId === null,
+      icon: BrushCleaning,
+      id: 'clean',
+      keywords: ['clean', 'clear', 'erase', 'terminal'],
+      shortcut: [],
+      title: 'Clean'
+    },
+    {
+      action: () => {
+        if (!activeTabId) {
+          return
+        }
+
+        closeTab(activeTabId)
+      },
+      description: activeTab ? `Close ${activeTab.title}.` : 'Close the current tab.',
+      disabled: activeTabId === null,
+      icon: X,
+      id: 'close-tab',
+      keywords: ['close', 'tab', 'remove'],
+      shortcut: [primaryModifierLabel, 'W'],
+      title: 'Close Tab'
+    }
+  ]
+  const quickOpenNormalizedQuery = normalizeQuickOpenQuery(quickOpenQuery)
+  const filteredQuickOpenCommands = quickOpenCommands
+    .map((command, index) => ({
+      command,
+      index,
+      score: getQuickOpenCommandScore(command, quickOpenNormalizedQuery)
+    }))
+    .filter(({ score }) => quickOpenNormalizedQuery === '' || score >= 0)
+    .sort((left, right) => {
+      if (left.command.disabled !== right.command.disabled) {
+        return Number(left.command.disabled) - Number(right.command.disabled)
+      }
+
+      if (left.score !== right.score) {
+        return right.score - left.score
+      }
+
+      return left.index - right.index
+    })
+    .map(({ command }) => command)
+
+  const executeQuickOpenCommand = useCallback(
+    (command: QuickOpenCommandItem | undefined): void => {
+      if (!command || command.disabled) {
+        return
+      }
+
+      closeQuickOpen(false)
+      command.action()
+    },
+    [closeQuickOpen]
+  )
+
+  useEffect(() => {
+    if (filteredQuickOpenCommands.length === 0) {
+      if (quickOpenSelectedIndex !== 0) {
+        setQuickOpenSelectedIndex(0)
+      }
+      return
+    }
+
+    if (quickOpenSelectedIndex >= filteredQuickOpenCommands.length) {
+      setQuickOpenSelectedIndex(filteredQuickOpenCommands.length - 1)
+    }
+  }, [filteredQuickOpenCommands.length, quickOpenSelectedIndex])
 
   const handleOpenCurrentFolder = useCallback((): void => {
     if (activeSshConfigId && activeSshTabId) {
@@ -6148,22 +6526,9 @@ function TerminalApp(): React.JSX.Element {
       return
     }
 
-    const runtime = runtimesRef.current.get(currentMenu.tabId)
-
-    if (!runtime || runtime.disposed) {
-      closeTerminalContextMenu()
-      return
-    }
-
-    runtime.terminal.focus()
-    runtime.terminal.clear()
-
-    if (activeTabIdRef.current === currentMenu.tabId && isSearchOpenRef.current) {
-      queueSearchRefresh(currentMenu.tabId, 0)
-    }
-
+    clearTerminalContent(currentMenu.tabId)
     closeTerminalContextMenu()
-  }, [closeTerminalContextMenu, queueSearchRefresh, terminalContextMenu])
+  }, [clearTerminalContent, closeTerminalContextMenu, terminalContextMenu])
 
   const handleDeleteSshBrowserEntry = useCallback(
     (browserState: SshBrowserState, entry: SshRemoteDirectoryEntry): void => {
@@ -7162,6 +7527,118 @@ function TerminalApp(): React.JSX.Element {
           </div>
         ) : null}
       </section>
+      {isQuickOpenOpen ? (
+        <Modal
+          className="quick-open-dialog"
+          contentLabel="Quick open"
+          isOpen
+          onRequestClose={() => closeQuickOpen()}
+          overlayClassName="quick-open-shell"
+        >
+          <div className="quick-open-search">
+            <Search aria-hidden="true" className="quick-open-search-icon" />
+            <input
+              aria-label="Search commands"
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              className="quick-open-input"
+              onChange={(event) => setQuickOpenQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  closeQuickOpen()
+                  return
+                }
+
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setQuickOpenSelectedIndex((currentIndex) =>
+                    filteredQuickOpenCommands.length === 0
+                      ? 0
+                      : (currentIndex + 1) % filteredQuickOpenCommands.length
+                  )
+                  return
+                }
+
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setQuickOpenSelectedIndex((currentIndex) =>
+                    filteredQuickOpenCommands.length === 0
+                      ? 0
+                      : (currentIndex - 1 + filteredQuickOpenCommands.length) %
+                          filteredQuickOpenCommands.length
+                  )
+                  return
+                }
+
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  executeQuickOpenCommand(
+                    filteredQuickOpenCommands[quickOpenSelectedIndex] ??
+                      filteredQuickOpenCommands[0]
+                  )
+                }
+              }}
+              placeholder="Type a command"
+              ref={quickOpenInputRef}
+              spellCheck={false}
+              type="text"
+              value={quickOpenQuery}
+            />
+            <div aria-hidden="true" className="quick-open-trigger">
+              <span className="quick-open-kbd">{primaryModifierLabel}</span>
+              <span className="quick-open-kbd">P</span>
+            </div>
+          </div>
+          <div aria-label="Available commands" className="quick-open-results" role="listbox">
+            {filteredQuickOpenCommands.length > 0 ? (
+              filteredQuickOpenCommands.map((command, index) => {
+                const Icon = command.icon
+                const isSelected = index === quickOpenSelectedIndex
+
+                return (
+                  <button
+                    aria-disabled={command.disabled}
+                    aria-selected={isSelected}
+                    className={`quick-open-item${isSelected ? ' is-selected' : ''}${command.disabled ? ' is-disabled' : ''}`}
+                    key={command.id}
+                    onClick={() => executeQuickOpenCommand(command)}
+                    onMouseMove={() => {
+                      if (quickOpenSelectedIndex !== index) {
+                        setQuickOpenSelectedIndex(index)
+                      }
+                    }}
+                    role="option"
+                    type="button"
+                  >
+                    <span className="quick-open-item-icon-shell">
+                      <Icon aria-hidden="true" className="quick-open-item-icon" />
+                    </span>
+                    <span className="quick-open-item-copy">
+                      <span className="quick-open-item-row">
+                        <span className="quick-open-item-title">{command.title}</span>
+                        {command.shortcut.length > 0 ? (
+                          <span aria-hidden="true" className="quick-open-item-shortcut">
+                            {command.shortcut.map((part) => (
+                              <span className="quick-open-kbd" key={`${command.id}-${part}`}>
+                                {part}
+                              </span>
+                            ))}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="quick-open-item-description">{command.description}</span>
+                    </span>
+                  </button>
+                )
+              })
+            ) : (
+              <div className="quick-open-empty">No matching commands.</div>
+            )}
+          </div>
+        </Modal>
+      ) : null}
       {isSettingsDialogOpen ? (
         <SettingsDialog
           availableTerminalFontOptions={availableTerminalFontOptions}
