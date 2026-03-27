@@ -149,7 +149,18 @@ interface SshServerIconOption {
 }
 
 type TerminalFontFamilyId = string
-type TerminalColorSchemeId = 'midnight-blue' | 'rose-pine'
+type TerminalColorSchemeId =
+  | 'midnight-blue'
+  | 'rose-pine'
+  | 'dracula'
+  | 'solarized-dark'
+  | 'nord'
+  | 'gruvbox-dark'
+  | 'tokyo-night'
+  | 'catppuccin-mocha'
+  | 'one-dark'
+  | 'one-light'
+  | 'monokai'
 type TerminalFontWeight = '300' | '400' | '500' | '600' | '700'
 type SettingsTabId = 'general' | 'appearance'
 
@@ -176,6 +187,27 @@ interface RgbColor {
   blue: number
   green: number
   red: number
+}
+
+interface TerminalPalette {
+  background: string
+  black: string
+  blue: string
+  brightBlack: string
+  brightBlue: string
+  brightCyan: string
+  brightGreen: string
+  brightMagenta: string
+  brightRed: string
+  brightWhite: string
+  brightYellow: string
+  cyan: string
+  foreground: string
+  green: string
+  magenta: string
+  red: string
+  white: string
+  yellow: string
 }
 
 const defaultTabTitle = '~'
@@ -344,6 +376,27 @@ const sshBrowserFileIconBySuffix = new Map<string, SshBrowserFileIconDescriptor>
   ['.conf', sshBrowserTextFileIconDescriptor],
   ['.csv', sshBrowserTextFileIconDescriptor]
 ])
+
+function applyThemeAlpha(color: string, alpha: number): string {
+  const rgbColor = parseColorToRgb(color)
+
+  if (!rgbColor) {
+    return color
+  }
+
+  return `rgba(${rgbColor.red}, ${rgbColor.green}, ${rgbColor.blue}, ${alpha})`
+}
+
+function createTerminalThemeFromPalette(palette: TerminalPalette): ITheme {
+  return {
+    ...palette,
+    cursor: palette.foreground,
+    cursorAccent: palette.background,
+    selectionBackground: applyThemeAlpha(palette.blue, 0.28),
+    selectionInactiveBackground: applyThemeAlpha(palette.blue, 0.18)
+  }
+}
+
 const defaultTerminalTheme = {
   background: '#000000',
   black: '#000000',
@@ -404,6 +457,239 @@ const terminalColorSchemes: TerminalColorScheme[] = [
     id: 'rose-pine',
     label: 'Rose Pine',
     theme: rosePineTerminalTheme
+  },
+  {
+    description: 'High-contrast violet palette with vivid neon accents.',
+    id: 'dracula',
+    label: 'Dracula',
+    theme: createTerminalThemeFromPalette({
+      background: '#282a36',
+      foreground: '#f8f8f2',
+      black: '#21222c',
+      red: '#ff5555',
+      green: '#50fa7b',
+      yellow: '#f1fa8c',
+      blue: '#bd93f9',
+      magenta: '#ff79c6',
+      cyan: '#8be9fd',
+      white: '#f8f8f2',
+      brightBlack: '#6272a4',
+      brightRed: '#ff6e6e',
+      brightGreen: '#69ff94',
+      brightYellow: '#ffffa5',
+      brightBlue: '#d6acff',
+      brightMagenta: '#ff92df',
+      brightCyan: '#a4ffff',
+      brightWhite: '#ffffff'
+    })
+  },
+  {
+    description: 'Low-glare classic with balanced contrast for long reads.',
+    id: 'solarized-dark',
+    label: 'Solarized Dark',
+    theme: createTerminalThemeFromPalette({
+      background: '#002b36',
+      foreground: '#839496',
+      black: '#073642',
+      red: '#dc322f',
+      green: '#859900',
+      yellow: '#b58900',
+      blue: '#268bd2',
+      magenta: '#d33682',
+      cyan: '#2aa198',
+      white: '#eee8d5',
+      brightBlack: '#002b36',
+      brightRed: '#cb4b16',
+      brightGreen: '#586e75',
+      brightYellow: '#657b83',
+      brightBlue: '#839496',
+      brightMagenta: '#6c71c4',
+      brightCyan: '#93a1a1',
+      brightWhite: '#fdf6e3'
+    })
+  },
+  {
+    description: 'Cool arctic tones with soft contrast and restrained saturation.',
+    id: 'nord',
+    label: 'Nord',
+    theme: createTerminalThemeFromPalette({
+      background: '#2e3440',
+      foreground: '#d8dee9',
+      black: '#3b4252',
+      red: '#bf616a',
+      green: '#a3be8c',
+      yellow: '#ebcb8b',
+      blue: '#81a1c1',
+      magenta: '#b48ead',
+      cyan: '#88c0d0',
+      white: '#e5e9f0',
+      brightBlack: '#4c566a',
+      brightRed: '#bf616a',
+      brightGreen: '#a3be8c',
+      brightYellow: '#ebcb8b',
+      brightBlue: '#81a1c1',
+      brightMagenta: '#b48ead',
+      brightCyan: '#8fbcbb',
+      brightWhite: '#eceff4'
+    })
+  },
+  {
+    description: 'Warm earthy colors on a muted dark background.',
+    id: 'gruvbox-dark',
+    label: 'Gruvbox Dark',
+    theme: createTerminalThemeFromPalette({
+      background: '#282828',
+      foreground: '#ebdbb2',
+      black: '#282828',
+      red: '#cc241d',
+      green: '#98971a',
+      yellow: '#d79921',
+      blue: '#458588',
+      magenta: '#b16286',
+      cyan: '#689d6a',
+      white: '#a89984',
+      brightBlack: '#928374',
+      brightRed: '#fb4934',
+      brightGreen: '#b8bb26',
+      brightYellow: '#fabd2f',
+      brightBlue: '#83a598',
+      brightMagenta: '#d3869b',
+      brightCyan: '#8ec07c',
+      brightWhite: '#ebdbb2'
+    })
+  },
+  {
+    description: 'Deep navy base with sharp blues and pinks.',
+    id: 'tokyo-night',
+    label: 'Tokyo Night',
+    theme: createTerminalThemeFromPalette({
+      background: '#1a1b26',
+      foreground: '#c0caf5',
+      black: '#15161e',
+      red: '#f7768e',
+      green: '#9ece6a',
+      yellow: '#e0af68',
+      blue: '#7aa2f7',
+      magenta: '#bb9af7',
+      cyan: '#7dcfff',
+      white: '#a9b1d6',
+      brightBlack: '#414868',
+      brightRed: '#f7768e',
+      brightGreen: '#9ece6a',
+      brightYellow: '#e0af68',
+      brightBlue: '#7aa2f7',
+      brightMagenta: '#bb9af7',
+      brightCyan: '#7dcfff',
+      brightWhite: '#c0caf5'
+    })
+  },
+  {
+    description: 'Soft mocha neutrals with pastel accents.',
+    id: 'catppuccin-mocha',
+    label: 'Catppuccin Mocha',
+    theme: createTerminalThemeFromPalette({
+      background: '#1e1e2e',
+      foreground: '#cdd6f4',
+      black: '#45475a',
+      red: '#f38ba8',
+      green: '#a6e3a1',
+      yellow: '#f9e2af',
+      blue: '#89b4fa',
+      magenta: '#f5c2e7',
+      cyan: '#94e2d5',
+      white: '#bac2de',
+      brightBlack: '#585b70',
+      brightRed: '#f38ba8',
+      brightGreen: '#a6e3a1',
+      brightYellow: '#f9e2af',
+      brightBlue: '#89b4fa',
+      brightMagenta: '#f5c2e7',
+      brightCyan: '#94e2d5',
+      brightWhite: '#a6adc8'
+    })
+  },
+  {
+    description: 'Balanced Atom-era dark theme with clear syntax colors.',
+    id: 'one-dark',
+    label: 'One Dark',
+    theme: {
+      background: '#1e2127',
+      black: '#1e2127',
+      blue: '#61afef',
+      brightBlack: '#5c6370',
+      brightBlue: '#61afef',
+      brightCyan: '#56b6c2',
+      brightGreen: '#98c379',
+      brightMagenta: '#c678dd',
+      brightRed: '#e06c75',
+      brightWhite: '#ffffff',
+      brightYellow: '#d19a66',
+      cursor: '#5c6370',
+      cursorAccent: '#1e2127',
+      cyan: '#56b6c2',
+      foreground: '#abb2bf',
+      green: '#98c379',
+      magenta: '#c678dd',
+      red: '#e06c75',
+      selectionBackground: '#3a3f4b',
+      selectionInactiveBackground: '#3a3f4b',
+      white: '#abb2bf',
+      yellow: '#d19a66',
+    } satisfies ITheme
+  },
+  {
+    description: 'Clean light variant of One Dark with muted contrast.',
+    id: 'one-light',
+    label: 'One Light',
+    theme: {
+      background: '#f9f9f9',
+      black: '#000000',
+      blue: '#4078f2',
+      brightBlack: '#383a42',
+      brightBlue: '#4078f2',
+      brightCyan: '#0184bc',
+      brightGreen: '#50a14f',
+      brightMagenta: '#a626a4',
+      brightRed: '#e45649',
+      brightWhite: '#ffffff',
+      brightYellow: '#986801',
+      cursor: '#383a42',
+      cursorAccent: '#f9f9f9',
+      cyan: '#0184bc',
+      foreground: '#383a42',
+      green: '#50a14f',
+      magenta: '#a626a4',
+      red: '#e45649',
+      selectionBackground: '#3a3f4b',
+      selectionInactiveBackground: '#3a3f4b',
+      white: '#a0a1a7',
+      yellow: '#986801'
+    } satisfies ITheme
+  },
+  {
+    description: 'Classic high-energy dark theme with vivid accent colors.',
+    id: 'monokai',
+    label: 'Monokai',
+    theme: createTerminalThemeFromPalette({
+      background: '#272822',
+      foreground: '#f8f8f2',
+      black: '#272822',
+      red: '#f92672',
+      green: '#a6e22e',
+      yellow: '#f4bf75',
+      blue: '#66d9ef',
+      magenta: '#ae81ff',
+      cyan: '#a1efe4',
+      white: '#f8f8f2',
+      brightBlack: '#75715e',
+      brightRed: '#f92672',
+      brightGreen: '#a6e22e',
+      brightYellow: '#f4bf75',
+      brightBlue: '#66d9ef',
+      brightMagenta: '#ae81ff',
+      brightCyan: '#a1efe4',
+      brightWhite: '#f9f8f5'
+    })
   }
 ]
 const defaultTerminalColorScheme = terminalColorSchemes[0]
