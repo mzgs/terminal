@@ -3901,6 +3901,13 @@ function TerminalApp(): React.JSX.Element {
         return
       }
 
+      if (event.metaKey && (event.key === ',' || event.code === 'Comma')) {
+        event.preventDefault()
+        setIsSshMenuOpen(false)
+        setIsSettingsDialogOpen(true)
+        return
+      }
+
       if (usesPrimaryModifier && event.key >= '1' && event.key <= '9') {
         const targetTab = tabsRef.current[Number(event.key) - 1]
 
@@ -3936,7 +3943,13 @@ function TerminalApp(): React.JSX.Element {
     return () => {
       window.removeEventListener('keydown', onKeyDown, { capture: true })
     }
-  }, [activateTab, closeTab, createTab, isSettingsDialogOpen, selectAdjacentTab])
+  }, [
+    activateTab,
+    closeTab,
+    createTab,
+    isSettingsDialogOpen,
+    selectAdjacentTab
+  ])
 
   useEffect(() => {
     if (!isSearchOpen) {
