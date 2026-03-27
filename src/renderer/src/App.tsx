@@ -221,7 +221,7 @@ interface QuickCommandDraft {
   title: string
 }
 
-type QuickOpenCommandGroupId = 'commands' | 'servers'
+type QuickOpenCommandGroupId = 'commands' | 'quickCommands' | 'servers'
 
 interface QuickOpenCommandItem {
   action: () => void
@@ -258,6 +258,10 @@ const quickOpenCommandGroups: QuickOpenCommandGroup[] = [
   {
     id: 'commands',
     label: 'Commands'
+  },
+  {
+    id: 'quickCommands',
+    label: 'Quick Commands'
   },
   {
     id: 'servers',
@@ -4020,6 +4024,7 @@ function TerminalApp(): React.JSX.Element {
   const searchRefreshTimeoutRef = useRef<number | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const quickOpenInputRef = useRef<HTMLInputElement>(null)
+  const quickOpenResultsRef = useRef<HTMLDivElement>(null)
   const searchResultIndexRef = useRef(-1)
   const searchQueryRef = useRef('')
   const sshBrowserResizePointerIdRef = useRef<number | null>(null)
@@ -6150,7 +6155,25 @@ function TerminalApp(): React.JSX.Element {
     [createTab]
   )
 
+  const runQuickCommand = useCallback((quickCommand: QuickCommand): void => {
+    const currentActiveTabId = activeTabIdRef.current
+
+    if (!currentActiveTabId) {
+      return
+    }
+
+    const runtime = runtimesRef.current.get(currentActiveTabId)
+
+    if (!runtime || runtime.closed || runtime.disposed || runtime.terminalId === null) {
+      return
+    }
+
+    window.api.terminal.write(runtime.terminalId, `${quickCommand.command}\r`)
+    runtime.terminal.focus()
+  }, [])
+
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const canRunQuickCommands = activeTab?.status === 'ready' && activeTab.terminalId !== null
   const activeLocalTabCwd =
     activeTab?.restoreState.kind === 'local' ? (activeTab.restoreState.cwd ?? null) : null
   const activeSshConfigId =
@@ -6244,6 +6267,26 @@ function TerminalApp(): React.JSX.Element {
       shortcut: [primaryModifierLabel, 'W'],
       title: 'Close Tab'
     },
+    ...quickCommands.map((quickCommand) => ({
+      action: () => runQuickCommand(quickCommand),
+      description: canRunQuickCommands
+        ? quickCommand.command
+        : `${quickCommand.command} · Open or reconnect a terminal tab to run this command.`,
+      disabled: !canRunQuickCommands,
+      group: 'quickCommands' as const,
+      icon: FileTerminal,
+      id: `quick-command-${quickCommand.id}`,
+      keywords: [
+        'quick command',
+        'saved command',
+        'snippet',
+        'run',
+        quickCommand.title,
+        quickCommand.command
+      ],
+      shortcut: [],
+      title: quickCommand.title
+    })),
     ...sortedSshServers.map((server) => {
       const target = formatSshTarget(server)
       const trimmedDescription = server.description.trim()
@@ -6335,6 +6378,25 @@ function TerminalApp(): React.JSX.Element {
       setQuickOpenSelectedIndex(filteredQuickOpenCommands.length - 1)
     }
   }, [filteredQuickOpenCommands.length, quickOpenSelectedIndex])
+
+  useEffect(() => {
+    if (!isQuickOpenOpen || filteredQuickOpenCommands.length === 0) {
+      return
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      const selectedItem =
+        quickOpenResultsRef.current?.querySelector<HTMLButtonElement>('.quick-open-item.is-selected')
+
+      selectedItem?.scrollIntoView({
+        block: 'nearest'
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId)
+    }
+  }, [filteredQuickOpenCommands.length, isQuickOpenOpen, quickOpenSelectedIndex])
 
   const handleOpenCurrentFolder = useCallback((): void => {
     if (activeSshConfigId && activeSshTabId) {
@@ -7669,7 +7731,12 @@ function TerminalApp(): React.JSX.Element {
               <span className="quick-open-kbd">P</span>
             </div>
           </div>
-          <div aria-label="Available commands" className="quick-open-results" role="listbox">
+          <div
+            aria-label="Available commands"
+            className="quick-open-results"
+            ref={quickOpenResultsRef}
+            role="listbox"
+          >
             {filteredQuickOpenCommands.length > 0 ? (
               filteredQuickOpenCommandGroups.map(({ group, items }) => (
                 <div
@@ -7689,7 +7756,7 @@ function TerminalApp(): React.JSX.Element {
                       <button
                         aria-disabled={command.disabled}
                         aria-selected={isSelected}
-                        className={`quick-open-item${isSelected ? ' is-selected' : ''}${command.disabled ? ' is-disabled' : ''}`}
+                        className={`quick-open-item${isSelected ? ' is-selected' : ''}${command.disabled ? ' is-disabled' : ''}${command.group === 'quickCommands' ? ' is-quick-command' : ''}`}
                         key={command.id}
                         onClick={() => executeQuickOpenCommand(command)}
                         onMouseMove={() => {
@@ -7716,7 +7783,10 @@ function TerminalApp(): React.JSX.Element {
                               </span>
                             ) : null}
                           </span>
-                          <span className="quick-open-item-description">
+                          <span
+                            className="quick-open-item-description"
+                            title={command.group === 'quickCommands' ? command.description : undefined}
+                          >
                             {command.description}
                           </span>
                         </span>

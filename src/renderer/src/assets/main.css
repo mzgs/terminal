@@ -1326,6 +1326,12 @@ body {
   line-height: 1.4;
 }
 
+.quick-open-item.is-quick-command .quick-open-item-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quick-open-empty {
   padding: 20px 12px;
   color: var(--color-text-muted);
