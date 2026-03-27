@@ -1612,6 +1612,19 @@ function ReorderableTab({
 }: ReorderableTabProps): React.JSX.Element {
   const dragControls = useDragControls()
   const tabStatusLabel = getTabStatusLabel(tab)
+  const handleCloseClick = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation()
+    closeTab(tab.id)
+  }
+  const handleCloseAuxClick = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (event.button !== 1) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    closeTab(tab.id)
+  }
 
   return (
     <Reorder.Item
@@ -1662,10 +1675,8 @@ function ReorderableTab({
       <button
         aria-label={`Close tab ${index + 1}`}
         className="tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          closeTab(tab.id)
-        }}
+        onAuxClick={handleCloseAuxClick}
+        onClick={handleCloseClick}
         type="button"
       >
         <X aria-hidden="true" className="tab-close-icon" />
