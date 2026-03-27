@@ -18,6 +18,7 @@ import { spawn, type IPty } from 'node-pty'
 import SftpClient from 'ssh2-sftp-client'
 import type { ConnectConfig } from 'ssh2'
 import icon from '../../resources/icon.png?asset'
+import type { AppSettings } from '../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
 import {
   normalizeSshServerIcon,
@@ -65,7 +66,9 @@ const terminals = new Map<number, TerminalSession>()
 const ownersWithCleanup = new Set<number>()
 let nextTerminalId = 1
 let persistedSession: SessionSnapshot | null = null
+let persistedSettings: AppSettings | null = null
 let sshServers: SshServerConfig[] = []
+const settingsStoreFileName = 'settings.json'
 const sessionStoreFileName = 'terminal-session.json'
 const sshServersStoreFileName = 'ssh-servers.json'
 const sshPasswordEncryptionSecret = 'T3rm!nal_SSH#2026$Vaulfe35dt@91xZ'
@@ -584,6 +587,10 @@ function parsePersistedSshServerConfig(value: unknown): SshServerConfig | null {
 
 function getSshServersStorePath(): string {
   return join(app.getPath('userData'), sshServersStoreFileName)
+}
+
+function getSettingsStorePath(): string {
+  return join(app.getPath('userData'), settingsStoreFileName)
 }
 
 function getSessionStorePath(): string {
@@ -1475,6 +1482,98 @@ function persistSessionSnapshot(snapshot: SessionSnapshot): void {
   }
 }
 
+function parsePersistedSettings(value: unknown): AppSettings | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const terminalValue = record.terminal
+
+  if (record.version !== 1 || !terminalValue || typeof terminalValue !== 'object') {
+    return null
+  }
+
+  const terminalRecord = terminalValue as Record<string, unknown>
+  const fontSizeValue =
+    typeof terminalRecord.fontSize === 'number'
+      ? terminalRecord.fontSize
+      : typeof terminalRecord.fontSize === 'string' && terminalRecord.fontSize.trim() !== ''
+        ? Number(terminalRecord.fontSize)
+        : NaN
+
+  if (
+    typeof terminalRecord.colorSchemeId !== 'string' ||
+    terminalRecord.colorSchemeId.trim() === '' ||
+    typeof terminalRecord.fontFamilyId !== 'string' ||
+    terminalRecord.fontFamilyId.trim() === '' ||
+    !Number.isFinite(fontSizeValue) ||
+    typeof terminalRecord.fontWeight !== 'string' ||
+    terminalRecord.fontWeight.trim() === ''
+  ) {
+    return null
+  }
+
+  return {
+    terminal: {
+      colorSchemeId: terminalRecord.colorSchemeId.trim(),
+      fontFamilyId: terminalRecord.fontFamilyId.trim(),
+      fontSize: Math.round(fontSizeValue),
+      fontWeight: terminalRecord.fontWeight.trim()
+    },
+    version: 1
+  }
+}
+
+function persistSettings(settings: AppSettings): void {
+  try {
+    writeFileSync(getSettingsStorePath(), JSON.stringify(settings, null, 2), 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to persist settings: ${message}`)
+  }
+}
+
+function loadPersistedSettings(): void {
+  const storePath = getSettingsStorePath()
+
+  if (!existsSync(storePath)) {
+    persistedSettings = null
+    return
+  }
+
+  try {
+    const rawValue = readFileSync(storePath, 'utf8')
+    const parsedValue = parsePersistedSettings(JSON.parse(rawValue))
+
+    if (!parsedValue) {
+      console.warn(`Unexpected settings store format in ${storePath}`)
+      persistedSettings = null
+      return
+    }
+
+    persistedSettings = parsedValue
+  } catch (error) {
+    console.warn(`Failed to load settings from ${storePath}`, error)
+    persistedSettings = null
+  }
+}
+
+function listPersistedSettings(): AppSettings | null {
+  return persistedSettings
+}
+
+function saveSettings(settings: AppSettings): void {
+  const parsedSettings = parsePersistedSettings(settings)
+
+  if (!parsedSettings) {
+    throw new Error('Invalid settings payload.')
+  }
+
+  persistSettings(parsedSettings)
+  persistedSettings = parsedSettings
+}
+
 function loadPersistedSession(): void {
   const storePath = getSessionStorePath()
 
@@ -1912,6 +2011,7 @@ function removeSshConfig(webContents: WebContents, configId: string): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   ensureNodePtyHelpersExecutable()
+  loadPersistedSettings()
   loadPersistedSession()
   loadPersistedSshServers()
 
@@ -1930,6 +2030,8 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('shell:open-external', (_event, url: string) => openExternalUrl(url))
   ipcMain.handle('shell:open-path', (_event, path: string) => openFolderPath(path))
+  ipcMain.handle('settings:load', () => listPersistedSettings())
+  ipcMain.handle('settings:save', (_event, settings: AppSettings) => saveSettings(settings))
   ipcMain.handle('session:load', () => listPersistedSession())
   ipcMain.handle('session:save', (_event, snapshot: SessionSnapshot) =>
     stageSessionSnapshot(snapshot)

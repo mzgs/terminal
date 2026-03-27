@@ -33,6 +33,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Reorder, useDragControls } from 'motion/react'
 import Modal from 'react-modal'
 import '@xterm/xterm/css/xterm.css'
+import type { AppSettings } from '../../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
 import {
   defaultSshServerIcon,
@@ -526,10 +527,6 @@ const defaultTerminalColorScheme = terminalColorSchemes[0]
 const terminalColorSchemesById = new Map<TerminalColorSchemeId, TerminalColorScheme>(
   terminalColorSchemes.map((colorScheme) => [colorScheme.id, colorScheme])
 )
-const terminalColorSchemeStorageKey = 'terminal.colorScheme'
-const terminalFontFamilyStorageKey = 'terminal.fontFamily'
-const terminalFontSizeStorageKey = 'terminal.fontSize'
-const terminalFontWeightStorageKey = 'terminal.fontWeight'
 const bundledTerminalFontFamilies = [
   'JetBrains Mono Variable',
   'Fira Code Variable',
@@ -549,6 +546,7 @@ const defaultTerminalFontWeight = terminalFontWeightOptions[1]?.value ?? '400'
 const terminalFontWeightOptionsByValue = new Map<TerminalFontWeight, TerminalFontWeightOption>(
   terminalFontWeightOptions.map((fontWeightOption) => [fontWeightOption.value, fontWeightOption])
 )
+const bundledTerminalFontFamilyIds = new Set<TerminalFontFamilyId>(bundledTerminalFontFamilies)
 
 function getSearchTerminalTheme(theme: ITheme): ITheme {
   return {
@@ -559,22 +557,11 @@ function getSearchTerminalTheme(theme: ITheme): ITheme {
   }
 }
 
-function getStoredTerminalColorSchemeId(): TerminalColorSchemeId {
-  if (typeof window === 'undefined') {
-    return defaultTerminalColorScheme.id
-  }
-
-  try {
-    const storedColorSchemeId = window.localStorage.getItem(terminalColorSchemeStorageKey)
-
-    if (
-      storedColorSchemeId &&
-      terminalColorSchemesById.has(storedColorSchemeId as TerminalColorSchemeId)
-    ) {
-      return storedColorSchemeId as TerminalColorSchemeId
-    }
-  } catch (error) {
-    console.error('Unable to load the saved terminal color scheme.', error)
+function normalizeTerminalColorSchemeId(
+  colorSchemeId: string | null | undefined
+): TerminalColorSchemeId {
+  if (colorSchemeId && terminalColorSchemesById.has(colorSchemeId as TerminalColorSchemeId)) {
+    return colorSchemeId as TerminalColorSchemeId
   }
 
   return defaultTerminalColorScheme.id
@@ -584,62 +571,64 @@ function clampTerminalFontSize(fontSize: number): number {
   return Math.min(Math.max(Math.round(fontSize), minTerminalFontSize), maxTerminalFontSize)
 }
 
-function getStoredTerminalFontFamilyId(): TerminalFontFamilyId {
-  if (typeof window === 'undefined') {
-    return defaultTerminalFontFamilyId
-  }
-
-  try {
-    const storedFontFamilyId = window.localStorage.getItem(terminalFontFamilyStorageKey)
-
-    if (storedFontFamilyId && storedFontFamilyId.trim() !== '') {
-      return storedFontFamilyId
-    }
-  } catch (error) {
-    console.error('Unable to load the saved terminal font family.', error)
+function normalizeTerminalFontFamilyId(
+  fontFamilyId: string | null | undefined
+): TerminalFontFamilyId {
+  if (
+    fontFamilyId &&
+    bundledTerminalFontFamilyIds.has(fontFamilyId.trim() as TerminalFontFamilyId)
+  ) {
+    return fontFamilyId.trim()
   }
 
   return defaultTerminalFontFamilyId
 }
 
-function getStoredTerminalFontSize(): number {
-  if (typeof window === 'undefined') {
-    return defaultTerminalFontSize
-  }
-
-  try {
-    const storedFontSize = window.localStorage.getItem(terminalFontSizeStorageKey)
-    const parsedFontSize = Number(storedFontSize)
-
-    if (Number.isFinite(parsedFontSize)) {
-      return clampTerminalFontSize(parsedFontSize)
-    }
-  } catch (error) {
-    console.error('Unable to load the saved terminal font size.', error)
+function normalizeTerminalFontSize(fontSize: number): number {
+  if (Number.isFinite(fontSize)) {
+    return clampTerminalFontSize(fontSize)
   }
 
   return defaultTerminalFontSize
 }
 
-function getStoredTerminalFontWeight(): TerminalFontWeight {
-  if (typeof window === 'undefined') {
-    return defaultTerminalFontWeight
-  }
-
-  try {
-    const storedFontWeight = window.localStorage.getItem(terminalFontWeightStorageKey)
-
-    if (
-      storedFontWeight &&
-      terminalFontWeightOptionsByValue.has(storedFontWeight as TerminalFontWeight)
-    ) {
-      return storedFontWeight as TerminalFontWeight
-    }
-  } catch (error) {
-    console.error('Unable to load the saved terminal font weight.', error)
+function normalizeTerminalFontWeight(fontWeight: string | null | undefined): TerminalFontWeight {
+  if (fontWeight && terminalFontWeightOptionsByValue.has(fontWeight as TerminalFontWeight)) {
+    return fontWeight as TerminalFontWeight
   }
 
   return defaultTerminalFontWeight
+}
+
+function createAppSettings(
+  terminalColorSchemeId: TerminalColorSchemeId,
+  terminalFontFamilyId: TerminalFontFamilyId,
+  terminalFontSize: number,
+  terminalFontWeight: TerminalFontWeight
+): AppSettings {
+  return {
+    terminal: {
+      colorSchemeId: terminalColorSchemeId,
+      fontFamilyId: terminalFontFamilyId,
+      fontSize: terminalFontSize,
+      fontWeight: terminalFontWeight
+    },
+    version: 1
+  }
+}
+
+function getNormalizedTerminalSettings(settings: AppSettings): {
+  terminalColorSchemeId: TerminalColorSchemeId
+  terminalFontFamilyId: TerminalFontFamilyId
+  terminalFontSize: number
+  terminalFontWeight: TerminalFontWeight
+} {
+  return {
+    terminalColorSchemeId: normalizeTerminalColorSchemeId(settings.terminal.colorSchemeId),
+    terminalFontFamilyId: normalizeTerminalFontFamilyId(settings.terminal.fontFamilyId),
+    terminalFontSize: normalizeTerminalFontSize(settings.terminal.fontSize),
+    terminalFontWeight: normalizeTerminalFontWeight(settings.terminal.fontWeight)
+  }
 }
 
 function getTerminalFontFamilyCss(fontFamilyId: TerminalFontFamilyId): string {
@@ -2476,15 +2465,14 @@ function TerminalApp(): React.JSX.Element {
   const [sshUploadProgress, setSshUploadProgress] = useState<SshUploadProgressEvent | null>(null)
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false)
   const [selectedTerminalColorSchemeId, setSelectedTerminalColorSchemeId] =
-    useState<TerminalColorSchemeId>(() => getStoredTerminalColorSchemeId())
+    useState<TerminalColorSchemeId>(defaultTerminalColorScheme.id)
   const [selectedTerminalFontFamilyId, setSelectedTerminalFontFamilyId] =
-    useState<TerminalFontFamilyId>(() => getStoredTerminalFontFamilyId())
-  const [selectedTerminalFontSize, setSelectedTerminalFontSize] = useState<number>(() =>
-    getStoredTerminalFontSize()
-  )
-  const [selectedTerminalFontWeight, setSelectedTerminalFontWeight] = useState<TerminalFontWeight>(
-    () => getStoredTerminalFontWeight()
-  )
+    useState<TerminalFontFamilyId>(defaultTerminalFontFamilyId)
+  const [selectedTerminalFontSize, setSelectedTerminalFontSize] =
+    useState<number>(defaultTerminalFontSize)
+  const [selectedTerminalFontWeight, setSelectedTerminalFontWeight] =
+    useState<TerminalFontWeight>(defaultTerminalFontWeight)
+  const [hasHydratedSettings, setHasHydratedSettings] = useState(false)
   const [isSshConfigDialogOpen, setIsSshConfigDialogOpen] = useState(false)
   const [sshServerBeingEdited, setSshServerBeingEdited] = useState<SshServerConfig | null>(null)
   const [sshServers, setSshServers] = useState<SshServerConfig[]>([])
@@ -2530,6 +2518,43 @@ function TerminalApp(): React.JSX.Element {
     availableTerminalFontOptions.find(
       (fontOption) => fontOption.id === selectedTerminalFontFamilyId
     ) ?? defaultTerminalFontOption
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const applyLoadedSettings = (settings: AppSettings): void => {
+      const normalizedSettings = getNormalizedTerminalSettings(settings)
+
+      setSelectedTerminalColorSchemeId(normalizedSettings.terminalColorSchemeId)
+      setSelectedTerminalFontFamilyId(normalizedSettings.terminalFontFamilyId)
+      setSelectedTerminalFontSize(normalizedSettings.terminalFontSize)
+      setSelectedTerminalFontWeight(normalizedSettings.terminalFontWeight)
+    }
+
+    void (async () => {
+      try {
+        const savedSettings = await window.api.settings.load()
+
+        if (isCancelled) {
+          return
+        }
+
+        if (savedSettings) {
+          applyLoadedSettings(savedSettings)
+        }
+      } catch (error) {
+        console.error('Unable to load the saved app settings.', error)
+      } finally {
+        if (!isCancelled) {
+          setHasHydratedSettings(true)
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   const updateTab = useCallback((tabId: string, updater: (tab: TabRecord) => TabRecord): void => {
     setTabs((currentTabs) =>
@@ -3473,22 +3498,29 @@ function TerminalApp(): React.JSX.Element {
   ])
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(terminalColorSchemeStorageKey, selectedTerminalColorSchemeId)
-    } catch (error) {
-      console.error('Unable to save the selected terminal color scheme.', error)
+    if (!hasHydratedSettings) {
+      return
     }
-  }, [selectedTerminalColorSchemeId])
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(terminalFontFamilyStorageKey, selectedTerminalFontFamilyId)
-      window.localStorage.setItem(terminalFontSizeStorageKey, String(selectedTerminalFontSize))
-      window.localStorage.setItem(terminalFontWeightStorageKey, selectedTerminalFontWeight)
-    } catch (error) {
-      console.error('Unable to save the selected terminal typography settings.', error)
-    }
-  }, [selectedTerminalFontFamilyId, selectedTerminalFontSize, selectedTerminalFontWeight])
+    void window.api.settings
+      .save(
+        createAppSettings(
+          selectedTerminalColorSchemeId,
+          selectedTerminalFontFamilyId,
+          selectedTerminalFontSize,
+          selectedTerminalFontWeight
+        )
+      )
+      .catch((error) => {
+        console.error('Unable to save the app settings.', error)
+      })
+  }, [
+    hasHydratedSettings,
+    selectedTerminalColorSchemeId,
+    selectedTerminalFontFamilyId,
+    selectedTerminalFontSize,
+    selectedTerminalFontWeight
+  ])
 
   useEffect(() => {
     if (!activeTabId) {

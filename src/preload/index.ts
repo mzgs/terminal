@@ -1,6 +1,7 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ClipboardApi } from '../shared/clipboard'
+import type { SettingsApi } from '../shared/settings'
 import type { SessionApi } from '../shared/session'
 import type { ShellApi } from '../shared/shell'
 import type {
@@ -74,6 +75,11 @@ const terminal: TerminalApi = {
 const session: SessionApi = {
   load: () => ipcRenderer.invoke('session:load'),
   save: (snapshot) => ipcRenderer.invoke('session:save', snapshot)
+}
+
+const settings: SettingsApi = {
+  load: () => ipcRenderer.invoke('settings:load'),
+  save: (appSettings) => ipcRenderer.invoke('settings:save', appSettings)
 }
 
 const shell: ShellApi = {
@@ -171,6 +177,7 @@ const ssh: SshApi = {
 
 const api = {
   clipboard: clipboardApi,
+  settings,
   session,
   shell,
   ssh,
