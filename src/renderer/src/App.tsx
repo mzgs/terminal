@@ -2078,7 +2078,7 @@ function GeneralSettingsPanel({
             <input
               className="settings-field-input"
               onChange={(event) => onDefaultNewTabDirectoryChange(event.target.value)}
-              placeholder="/Users/mustafa/Developer"
+              placeholder="/path/to/directory"
               type="text"
               value={defaultNewTabDirectory}
             />

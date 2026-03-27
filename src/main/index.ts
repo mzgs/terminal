@@ -1,4 +1,11 @@
-import { app, shell, BrowserWindow, ipcMain, type WebContents } from 'electron'
+import {
+  app,
+  shell,
+  screen,
+  BrowserWindow,
+  ipcMain,
+  type WebContents
+} from 'electron'
 import { execFile, execFileSync } from 'node:child_process'
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
@@ -50,6 +57,18 @@ interface TerminalSpawnResult {
   trackCwd: boolean
 }
 
+interface PersistedMainWindowState {
+  bounds: MainWindowBounds
+  isMaximized: boolean
+}
+
+interface MainWindowBounds {
+  height: number
+  width: number
+  x?: number
+  y?: number
+}
+
 interface SshUploadPlanFile {
   localPath: string
   remotePath: string
@@ -67,9 +86,11 @@ const ownersWithCleanup = new Set<number>()
 let nextTerminalId = 1
 let persistedSession: SessionSnapshot | null = null
 let persistedSettings: AppSettings | null = null
+let persistedMainWindowState: PersistedMainWindowState | null = null
 let sshServers: SshServerConfig[] = []
 const settingsStoreFileName = 'settings.json'
 const sessionStoreFileName = 'terminal-session.json'
+const mainWindowStateStoreFileName = 'window-state.json'
 const sshServersStoreFileName = 'ssh-servers.json'
 const sshPasswordEncryptionSecret = 'T3rm!nal_SSH#2026$Vaulfe35dt@91xZ'
 const sshPasswordEncryptionPrefix = 'enc-v1'
@@ -80,6 +101,10 @@ const sshRemoteDirectoryListingEndMarker = '__TERMINAL_REMOTE_DIR_END__'
 const sshConnectTimeoutSeconds = 10
 const sshServerAliveIntervalSeconds = 5
 const sshServerAliveCountMax = 2
+const defaultMainWindowWidth = 1000
+const defaultMainWindowHeight = 600
+const minMainWindowWidth = 640
+const minMainWindowHeight = 480
 
 function ensureNodePtyHelpersExecutable(): void {
   if (process.platform === 'win32') {
@@ -595,6 +620,10 @@ function getSettingsStorePath(): string {
 
 function getSessionStorePath(): string {
   return join(app.getPath('userData'), sessionStoreFileName)
+}
+
+function getMainWindowStateStorePath(): string {
+  return join(app.getPath('userData'), mainWindowStateStoreFileName)
 }
 
 function getSshAskpassHelperPath(): string {
@@ -1525,6 +1554,37 @@ function parseSettingBoolean(value: unknown): boolean | null {
   return null
 }
 
+function parsePersistedMainWindowState(value: unknown): PersistedMainWindowState | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const boundsRecord =
+    record.bounds && typeof record.bounds === 'object'
+      ? (record.bounds as Record<string, unknown>)
+      : null
+  const widthValue = parseSettingNumber(boundsRecord?.width)
+  const heightValue = parseSettingNumber(boundsRecord?.height)
+  const xValue = parseSettingNumber(boundsRecord?.x)
+  const yValue = parseSettingNumber(boundsRecord?.y)
+  const isMaximizedValue = parseSettingBoolean(record.isMaximized)
+
+  if (widthValue === null || heightValue === null) {
+    return null
+  }
+
+  return {
+    bounds: {
+      ...(xValue === null ? {} : { x: Math.round(xValue) }),
+      ...(yValue === null ? {} : { y: Math.round(yValue) }),
+      width: Math.max(minMainWindowWidth, Math.round(widthValue)),
+      height: Math.max(minMainWindowHeight, Math.round(heightValue))
+    },
+    isMaximized: isMaximizedValue ?? false
+  }
+}
+
 function clampTerminalCursorWidth(cursorWidth: number): number {
   return Math.min(Math.max(Math.round(cursorWidth), minTerminalCursorWidth), maxTerminalCursorWidth)
 }
@@ -1614,6 +1674,15 @@ function persistSettings(settings: AppSettings): void {
   }
 }
 
+function persistMainWindowState(state: PersistedMainWindowState): void {
+  try {
+    writeFileSync(getMainWindowStateStorePath(), JSON.stringify(state, null, 2), 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to persist main window state: ${message}`)
+  }
+}
+
 function loadPersistedSettings(): void {
   const storePath = getSettingsStorePath()
 
@@ -1636,6 +1705,31 @@ function loadPersistedSettings(): void {
   } catch (error) {
     console.warn(`Failed to load settings from ${storePath}`, error)
     persistedSettings = null
+  }
+}
+
+function loadPersistedMainWindowState(): void {
+  const storePath = getMainWindowStateStorePath()
+
+  if (!existsSync(storePath)) {
+    persistedMainWindowState = null
+    return
+  }
+
+  try {
+    const rawValue = readFileSync(storePath, 'utf8')
+    const parsedValue = parsePersistedMainWindowState(JSON.parse(rawValue))
+
+    if (!parsedValue) {
+      console.warn(`Unexpected main window state store format in ${storePath}`)
+      persistedMainWindowState = null
+      return
+    }
+
+    persistedMainWindowState = parsedValue
+  } catch (error) {
+    console.warn(`Failed to load main window state from ${storePath}`, error)
+    persistedMainWindowState = null
   }
 }
 
@@ -1703,6 +1797,63 @@ function flushStagedSessionSnapshot(): void {
   } catch (error) {
     console.error('Unable to flush the staged terminal session.', error)
   }
+}
+
+function captureMainWindowState(window: BrowserWindow): PersistedMainWindowState {
+  const bounds =
+    window.isMaximized() || window.isMinimized() || window.isFullScreen()
+      ? window.getNormalBounds()
+      : window.getBounds()
+
+  return {
+    bounds: {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    },
+    isMaximized: window.isMaximized()
+  }
+}
+
+function saveMainWindowState(window: BrowserWindow): void {
+  try {
+    const nextState = captureMainWindowState(window)
+    persistMainWindowState(nextState)
+    persistedMainWindowState = nextState
+  } catch (error) {
+    console.error('Unable to persist the main window state.', error)
+  }
+}
+
+function canRestoreMainWindowBounds(bounds: MainWindowBounds): boolean {
+  if (typeof bounds.x !== 'number' || typeof bounds.y !== 'number') {
+    return true
+  }
+
+  const { x, y, width, height } = bounds
+  const right = x + width
+  const bottom = y + height
+
+  return screen.getAllDisplays().some(({ workArea }) => {
+    const workAreaRight = workArea.x + workArea.width
+    const workAreaBottom = workArea.y + workArea.height
+
+    return x < workAreaRight && right > workArea.x && y < workAreaBottom && bottom > workArea.y
+  })
+}
+
+function getMainWindowBounds(): MainWindowBounds {
+  const bounds = persistedMainWindowState?.bounds
+
+  if (!bounds || !canRestoreMainWindowBounds(bounds)) {
+    return {
+      width: defaultMainWindowWidth,
+      height: defaultMainWindowHeight
+    }
+  }
+
+  return bounds
 }
 
 function persistSshServers(nextSshServers: SshServerConfig[]): void {
@@ -1976,10 +2127,10 @@ function isFindShortcutInput(input: Electron.Input): boolean {
 }
 
 function createMainWindow(): BrowserWindow {
+  const mainWindowBounds = getMainWindowBounds()
   const nextMainWindow = new BrowserWindow({
     title: 'Terminal',
-    width: 1000,
-    height: 600,
+    ...mainWindowBounds,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#000000',
@@ -1999,7 +2150,15 @@ function createMainWindow(): BrowserWindow {
   })
 
   nextMainWindow.on('ready-to-show', () => {
+    if (persistedMainWindowState?.isMaximized) {
+      nextMainWindow.maximize()
+    }
+
     nextMainWindow.show()
+  })
+
+  nextMainWindow.on('close', () => {
+    saveMainWindowState(nextMainWindow)
   })
 
   nextMainWindow.on('closed', () => {
@@ -2091,6 +2250,7 @@ function removeSshConfig(webContents: WebContents, configId: string): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   ensureNodePtyHelpersExecutable()
+  loadPersistedMainWindowState()
   loadPersistedSettings()
   loadPersistedSession()
   loadPersistedSshServers()
