@@ -2369,6 +2369,8 @@ interface SshConfigDialogProps {
   serverConfig: SshServerConfig | null
 }
 
+type SshConfigFeedbackTone = 'error' | 'info' | 'success'
+
 interface SettingsDialogProps {
   availableTerminalFontOptions: TerminalFontOption[]
   defaultNewTabDirectory: string
@@ -3474,7 +3476,12 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isRemovingKnownHosts, setIsRemovingKnownHosts] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [knownHostsFeedback, setKnownHostsFeedback] = useState<{
+    message: string
+    tone: SshConfigFeedbackTone
+  } | null>(null)
   const [isOtherSettingsOpen, setIsOtherSettingsOpen] = useState(() =>
     Boolean(
       serverConfig?.defaultRemoteStartPath ||
@@ -3484,7 +3491,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
   )
   const connectionNameInputId = useId()
   const sshKeyFileInputRef = useRef<HTMLInputElement>(null)
-  const isBusy = isDeleting || isSaving
+  const isBusy = isDeleting || isRemovingKnownHosts || isSaving
 
   const updateField = useCallback(function updateField<TField extends keyof SshServerConfigInput>(
     field: TField,
@@ -3495,6 +3502,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
       [field]: value
     }))
     setErrorMessage(null)
+    setKnownHostsFeedback(null)
   }, [])
 
   const updateAuthMethod = useCallback((authMethod: SshAuthMethod): void => {
@@ -3504,6 +3512,7 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
       password: authMethod === 'password' ? currentState.password : ''
     }))
     setErrorMessage(null)
+    setKnownHostsFeedback(null)
   }, [])
 
   const toggleOtherSettings = useCallback((): void => {
@@ -3560,6 +3569,51 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
       setIsDeleting(false)
     }
   }, [isBusy, onClose, serverConfig])
+
+  const handleRemoveKnownHosts = useCallback(async (): Promise<void> => {
+    if (!isEditing || isBusy) {
+      return
+    }
+
+    const normalizedHost = formState.host.trim()
+
+    if (normalizedHost === '') {
+      setKnownHostsFeedback({
+        message: 'Add a host before removing known_hosts entries.',
+        tone: 'error'
+      })
+      return
+    }
+
+    setErrorMessage(null)
+    setKnownHostsFeedback(null)
+    setIsRemovingKnownHosts(true)
+
+    try {
+      const result = await window.api.ssh.removeKnownHosts(normalizedHost, formState.port)
+      const removedTargets = result.removedHosts
+
+      setKnownHostsFeedback(
+        removedTargets.length > 0
+          ? {
+              message: `Removed known_hosts entries for ${removedTargets.join(', ')}.`,
+              tone: 'success'
+            }
+          : {
+              message: `No known_hosts entries found for ${normalizedHost}.`,
+              tone: 'info'
+            }
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setKnownHostsFeedback({
+        message: message || `Unable to remove known_hosts entries for ${normalizedHost}.`,
+        tone: 'error'
+      })
+    } finally {
+      setIsRemovingKnownHosts(false)
+    }
+  }, [formState.host, formState.port, isBusy, isEditing])
 
   const handleSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -3828,6 +3882,36 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
                   value={formState.description}
                 />
               </label>
+              {isEditing ? (
+                <div className="ssh-field">
+                  <span className="ssh-field-label">Known hosts</span>
+                  <div className="ssh-field-inline-action-row">
+                    <button
+                      className="ssh-field-inline-action"
+                      disabled={isBusy || formState.host.trim() === ''}
+                      onClick={() => void handleRemoveKnownHosts()}
+                      type="button"
+                    >
+                      <BrushCleaning
+                        aria-hidden="true"
+                        className="ssh-field-inline-action-icon"
+                      />
+                      <span>{isRemovingKnownHosts ? 'Cleaning...' : 'Clean known_hosts'}</span>
+                    </button>
+                    <span className="ssh-field-help">
+                      Remove saved host keys before reconnecting to a rebuilt or re-keyed server.
+                    </span>
+                  </div>
+                  {knownHostsFeedback ? (
+                    <span
+                      aria-live="polite"
+                      className={`ssh-field-status is-${knownHostsFeedback.tone}`}
+                    >
+                      {knownHostsFeedback.message}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

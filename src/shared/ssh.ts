@@ -39,6 +39,10 @@ export interface SshServerConfigSaveInput extends SshServerConfigInput {
   id?: string
 }
 
+export interface SshKnownHostsRemovalResult {
+  removedHosts: string[]
+}
+
 export type SshTransferProgressStatus = 'running' | 'completed' | 'failed'
 
 export interface SshUploadProgressEvent {
@@ -73,6 +77,7 @@ export interface SshApi {
   onConfigDeleted: (callback: (configId: string) => void) => () => void
   onDownloadProgress: (callback: (event: SshDownloadProgressEvent) => void) => () => void
   onUploadProgress: (callback: (event: SshUploadProgressEvent) => void) => () => void
+  removeKnownHosts: (host: string, port: number) => Promise<SshKnownHostsRemovalResult>
   renamePath: (configId: string, path: string, nextPath: string) => Promise<void>
   saveConfig: (config: SshServerConfigSaveInput) => Promise<void>
   uploadPaths: (configId: string, targetPath: string, localPaths: string[]) => Promise<void>

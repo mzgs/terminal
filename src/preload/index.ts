@@ -7,6 +7,7 @@ import type { ShellApi } from '../shared/shell'
 import type {
   SshApi,
   SshDownloadProgressEvent,
+  SshKnownHostsRemovalResult,
   SshRemoteDirectoryListing,
   SshServerConfig,
   SshUploadProgressEvent
@@ -115,6 +116,11 @@ const ssh: SshApi = {
       path
     }) as Promise<SshRemoteDirectoryListing>,
   listConfigs: () => ipcRenderer.invoke('ssh:list-configs'),
+  removeKnownHosts: (host, port) =>
+    ipcRenderer.invoke('ssh:remove-known-hosts', {
+      host,
+      port
+    }) as Promise<SshKnownHostsRemovalResult>,
   onDownloadProgress: (callback) => {
     const listener = (
       _event: Electron.IpcRendererEvent,

@@ -10,6 +10,7 @@ import {
   readdirSync,
   readFileSync,
   statSync,
+  unlinkSync,
   writeFileSync
 } from 'node:fs'
 import { basename, delimiter, dirname, join, parse } from 'path'
@@ -30,6 +31,7 @@ import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '..
 import {
   normalizeSshServerIcon,
   type SshDownloadProgressEvent,
+  type SshKnownHostsRemovalResult,
   type SshRemoteDirectoryEntry,
   type SshRemoteDirectoryListing,
   type SshServerConfig,
@@ -848,6 +850,85 @@ function getDefaultSshPrivateKeyPath(): string | null {
   }
 
   return null
+}
+
+function getKnownHostsPath(): string {
+  return join(app.getPath('home'), '.ssh', 'known_hosts')
+}
+
+function normalizeKnownHostsHost(host: string): string {
+  const trimmedHost = host.trim()
+  const bracketedHostMatch = trimmedHost.match(/^\[([^\]]+)\](?::\d+)?$/)
+  return bracketedHostMatch ? bracketedHostMatch[1] : trimmedHost
+}
+
+function getKnownHostsTargets(host: string, port: number): string[] {
+  const normalizedHost = normalizeKnownHostsHost(host)
+
+  if (normalizedHost === '') {
+    return []
+  }
+
+  const normalizedPort = Number.isFinite(port) ? Math.max(1, Math.floor(port)) : 22
+
+  return Array.from(new Set([normalizedHost, `[${normalizedHost}]:${normalizedPort}`]))
+}
+
+function knownHostsEntryExists(
+  sshKeygenPath: string,
+  knownHostsPath: string,
+  host: string
+): boolean {
+  try {
+    execFileSync(sshKeygenPath, ['-F', host, '-f', knownHostsPath], {
+      stdio: 'ignore'
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function removeKnownHostsEntries(host: string, port: number): SshKnownHostsRemovalResult {
+  const targets = getKnownHostsTargets(host, port)
+
+  if (targets.length === 0) {
+    throw new Error('Host is required.')
+  }
+
+  const knownHostsPath = getKnownHostsPath()
+
+  if (!existsSync(knownHostsPath)) {
+    return { removedHosts: [] }
+  }
+
+  const sshKeygenPath = resolveExecutablePath('ssh-keygen')
+  const backupPath = `${knownHostsPath}.old`
+  const removedHosts: string[] = []
+
+  for (const target of targets) {
+    if (!knownHostsEntryExists(sshKeygenPath, knownHostsPath, target)) {
+      continue
+    }
+
+    const backupExistedBeforeRemoval = existsSync(backupPath)
+
+    try {
+      execFileSync(sshKeygenPath, ['-R', target, '-f', knownHostsPath], {
+        stdio: 'ignore'
+      })
+      removedHosts.push(target)
+
+      if (!backupExistedBeforeRemoval && existsSync(backupPath)) {
+        unlinkSync(backupPath)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Unable to remove known_hosts entries for ${target}: ${message}`)
+    }
+  }
+
+  return { removedHosts }
 }
 
 function buildSftpConnectOptions(config: SshServerConfig, password: string | null): ConnectConfig {
@@ -2541,6 +2622,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('ssh:list-directory', (_event, payload: { configId: string; path?: string }) =>
     listSshDirectory(payload.configId, payload.path)
+  )
+  ipcMain.handle('ssh:remove-known-hosts', (_event, payload: { host: string; port: number }) =>
+    removeKnownHostsEntries(payload.host, payload.port)
   )
   ipcMain.handle(
     'ssh:rename-path',
