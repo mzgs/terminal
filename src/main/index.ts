@@ -1,4 +1,4 @@
-import { app, shell, screen, BrowserWindow, ipcMain, type WebContents } from 'electron'
+import { app, dialog, shell, screen, BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { execFile, execFileSync } from 'node:child_process'
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
@@ -22,6 +22,8 @@ import type {
   AppSettings,
   AppStartupMode,
   QuickCommand,
+  SettingsExportResult,
+  SettingsImportResult,
   TerminalCursorStyle
 } from '../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
@@ -1889,6 +1891,115 @@ function saveSettings(settings: AppSettings): void {
   persistedSettings = parsedSettings
 }
 
+function serializePersistedSettings(
+  settings: AppSettings,
+  nextSshServers: SshServerConfig[] = sshServers
+): string {
+  return JSON.stringify({ ...settings, sshServers: nextSshServers }, null, 2)
+}
+
+async function exportSettingsToFile(): Promise<SettingsExportResult | null> {
+  const dialogOptions: Electron.SaveDialogOptions = {
+    defaultPath: join(app.getPath('documents'), 'terminal-settings.json'),
+    filters: [
+      {
+        extensions: ['json'],
+        name: 'JSON Files'
+      }
+    ],
+    properties: ['showOverwriteConfirmation']
+  }
+  const owningWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const result = owningWindow
+    ? await dialog.showSaveDialog(owningWindow, dialogOptions)
+    : await dialog.showSaveDialog(dialogOptions)
+
+  if (result.canceled || !result.filePath) {
+    return null
+  }
+
+  try {
+    const storePath = getSettingsStorePath()
+    const rawSettings = existsSync(storePath)
+      ? readFileSync(storePath, 'utf8')
+      : serializePersistedSettings(getSettingsForPersistence())
+
+    writeFileSync(result.filePath, rawSettings, 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to export settings: ${message}`)
+  }
+
+  return {
+    filePath: result.filePath
+  }
+}
+
+async function importSettingsFromFile(): Promise<SettingsImportResult | null> {
+  const dialogOptions: Electron.OpenDialogOptions = {
+    filters: [
+      {
+        extensions: ['json'],
+        name: 'JSON Files'
+      }
+    ],
+    properties: ['openFile']
+  }
+  const owningWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const result = owningWindow
+    ? await dialog.showOpenDialog(owningWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions)
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  const filePath = result.filePaths[0]
+
+  let parsedRawValue: unknown
+  let rawValue = ''
+
+  try {
+    rawValue = readFileSync(filePath, 'utf8')
+    parsedRawValue = JSON.parse(rawValue)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to read ${basename(filePath)}: ${message}`)
+  }
+
+  const parsedSettings = parsePersistedSettings(parsedRawValue)
+
+  if (!parsedSettings) {
+    throw new Error('The selected file does not contain valid app settings.')
+  }
+
+  if (parsedRawValue && typeof parsedRawValue === 'object') {
+    const sshServersValue = (parsedRawValue as Record<string, unknown>).sshServers
+
+    if (sshServersValue !== undefined) {
+      const parsedSshServers = parsePersistedSshServers(sshServersValue)
+
+      if (!parsedSshServers) {
+        throw new Error('The selected file contains invalid SSH server settings.')
+      }
+    }
+  }
+
+  try {
+    writeFileSync(getSettingsStorePath(), rawValue, 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to import settings: ${message}`)
+  }
+
+  loadPersistedSettings()
+
+  return {
+    filePath,
+    settings: persistedSettings ?? parsedSettings
+  }
+}
+
 function loadPersistedSession(): void {
   const storePath = getSessionStorePath()
 
@@ -2389,6 +2500,8 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('shell:open-external', (_event, url: string) => openExternalUrl(url))
   ipcMain.handle('shell:open-path', (_event, path: string) => openFolderPath(path))
+  ipcMain.handle('settings:export-to-file', () => exportSettingsToFile())
+  ipcMain.handle('settings:import-from-file', () => importSettingsFromFile())
   ipcMain.handle('settings:load', () => listPersistedSettings())
   ipcMain.handle('settings:save', (_event, settings: AppSettings) => saveSettings(settings))
   ipcMain.handle('session:load', () => listPersistedSession())

@@ -29,6 +29,7 @@ import {
   Settings2,
   TextSelect,
   Trash2,
+  Upload,
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -168,6 +169,8 @@ type TerminalColorSchemeId =
   | 'one-light'
   | 'monokai'
 type TerminalFontWeight = '300' | '400' | '500' | '600' | '700'
+type SettingsTransferAction = 'import' | 'export'
+type SettingsTransferTone = 'success' | 'error'
 type SettingsTabId = 'general' | 'appearance' | 'quickCommands'
 
 interface TerminalColorScheme {
@@ -2369,8 +2372,11 @@ interface SshConfigDialogProps {
 interface SettingsDialogProps {
   availableTerminalFontOptions: TerminalFontOption[]
   defaultNewTabDirectory: string
+  isSettingsTransferInProgress: boolean
   onClose: () => void
   onDefaultNewTabDirectoryChange: (defaultNewTabDirectory: string) => void
+  onExportSettings: () => void
+  onImportSettings: () => void
   onQuickCommandsChange: (quickCommands: QuickCommand[]) => void
   onStartupModeChange: (startupMode: AppStartupMode) => void
   onTerminalColorSchemeChange: (colorSchemeId: TerminalColorSchemeId) => void
@@ -2384,6 +2390,9 @@ interface SettingsDialogProps {
   onTerminalFontWeightChange: (fontWeight: TerminalFontWeight) => void
   onTerminalLineHeightChange: (lineHeight: number) => void
   quickCommands: QuickCommand[]
+  settingsTransferAction: SettingsTransferAction | null
+  settingsTransferMessage: string | null
+  settingsTransferTone: SettingsTransferTone
   selectedStartupMode: AppStartupMode
   selectedTerminalColorSchemeId: TerminalColorSchemeId
   selectedTerminalCursorBlink: boolean
@@ -2566,12 +2575,18 @@ function SshServerIconSelect({
 
 function GeneralSettingsPanel({
   defaultNewTabDirectory,
+  isSettingsTransferInProgress,
   onDefaultNewTabDirectoryChange,
+  onExportSettings,
+  onImportSettings,
   onStartupModeChange,
   onTerminalCursorBlinkChange,
   onTerminalCursorStyleChange,
   onTerminalCursorWidthChange,
   onTerminalLineHeightChange,
+  settingsTransferAction,
+  settingsTransferMessage,
+  settingsTransferTone,
   selectedStartupMode,
   selectedTerminalCursorBlink,
   selectedTerminalCursorStyle,
@@ -2579,12 +2594,18 @@ function GeneralSettingsPanel({
   selectedTerminalLineHeight
 }: {
   defaultNewTabDirectory: string
+  isSettingsTransferInProgress: boolean
   onDefaultNewTabDirectoryChange: (defaultNewTabDirectory: string) => void
+  onExportSettings: () => void
+  onImportSettings: () => void
   onStartupModeChange: (startupMode: AppStartupMode) => void
   onTerminalCursorBlinkChange: (cursorBlink: boolean) => void
   onTerminalCursorStyleChange: (cursorStyle: TerminalCursorStyle) => void
   onTerminalCursorWidthChange: (cursorWidth: number) => void
   onTerminalLineHeightChange: (lineHeight: number) => void
+  settingsTransferAction: SettingsTransferAction | null
+  settingsTransferMessage: string | null
+  settingsTransferTone: SettingsTransferTone
   selectedStartupMode: AppStartupMode
   selectedTerminalCursorBlink: boolean
   selectedTerminalCursorStyle: TerminalCursorStyle
@@ -2710,6 +2731,40 @@ function GeneralSettingsPanel({
             </span>
           </label>
         </div>
+      </div>
+      <div className="settings-appearance-section">
+        <div className="settings-appearance-copy">
+          <h3 className="settings-appearance-title">Import and export</h3>
+          <p className="settings-color-schemes-note">
+            Export your current setup to a JSON file or import a saved backup. Importing replaces
+            the current settings immediately.
+          </p>
+        </div>
+        <div className="settings-transfer-actions">
+          <button
+            className="settings-transfer-button"
+            disabled={isSettingsTransferInProgress}
+            onClick={onImportSettings}
+            type="button"
+          >
+            <Upload aria-hidden="true" className="settings-transfer-button-icon" />
+            <span>{settingsTransferAction === 'import' ? 'Importing...' : 'Import settings'}</span>
+          </button>
+          <button
+            className="settings-transfer-button"
+            disabled={isSettingsTransferInProgress}
+            onClick={onExportSettings}
+            type="button"
+          >
+            <Download aria-hidden="true" className="settings-transfer-button-icon" />
+            <span>{settingsTransferAction === 'export' ? 'Exporting...' : 'Export settings'}</span>
+          </button>
+        </div>
+        {settingsTransferMessage ? (
+          <p className={`settings-transfer-status is-${settingsTransferTone}`}>
+            {settingsTransferMessage}
+          </p>
+        ) : null}
       </div>
     </div>
   )
@@ -3809,8 +3864,11 @@ function SshConfigDialog({ onClose, serverConfig }: SshConfigDialogProps): React
 function SettingsDialog({
   availableTerminalFontOptions,
   defaultNewTabDirectory,
+  isSettingsTransferInProgress,
   onClose,
   onDefaultNewTabDirectoryChange,
+  onExportSettings,
+  onImportSettings,
   onQuickCommandsChange,
   onStartupModeChange,
   onTerminalColorSchemeChange,
@@ -3824,6 +3882,9 @@ function SettingsDialog({
   onTerminalFontWeightChange,
   onTerminalLineHeightChange,
   quickCommands,
+  settingsTransferAction,
+  settingsTransferMessage,
+  settingsTransferTone,
   selectedStartupMode,
   selectedTerminalColorSchemeId,
   selectedTerminalCursorBlink,
@@ -3924,12 +3985,18 @@ function SettingsDialog({
         {activeTabId === 'general' ? (
           <GeneralSettingsPanel
             defaultNewTabDirectory={defaultNewTabDirectory}
+            isSettingsTransferInProgress={isSettingsTransferInProgress}
             onDefaultNewTabDirectoryChange={onDefaultNewTabDirectoryChange}
+            onExportSettings={onExportSettings}
+            onImportSettings={onImportSettings}
             onStartupModeChange={onStartupModeChange}
             onTerminalCursorBlinkChange={onTerminalCursorBlinkChange}
             onTerminalCursorStyleChange={onTerminalCursorStyleChange}
             onTerminalCursorWidthChange={onTerminalCursorWidthChange}
             onTerminalLineHeightChange={onTerminalLineHeightChange}
+            settingsTransferAction={settingsTransferAction}
+            settingsTransferMessage={settingsTransferMessage}
+            settingsTransferTone={settingsTransferTone}
             selectedStartupMode={selectedStartupMode}
             selectedTerminalCursorBlink={selectedTerminalCursorBlink}
             selectedTerminalCursorStyle={selectedTerminalCursorStyle}
@@ -4020,6 +4087,10 @@ function TerminalApp(): React.JSX.Element {
   const [selectedTerminalLineHeight, setSelectedTerminalLineHeight] =
     useState(defaultTerminalLineHeight)
   const [hasHydratedSettings, setHasHydratedSettings] = useState(false)
+  const [settingsTransferAction, setSettingsTransferAction] =
+    useState<SettingsTransferAction | null>(null)
+  const [settingsTransferMessage, setSettingsTransferMessage] = useState<string | null>(null)
+  const [settingsTransferTone, setSettingsTransferTone] = useState<SettingsTransferTone>('success')
   const [isSshConfigDialogOpen, setIsSshConfigDialogOpen] = useState(false)
   const [sshServerBeingEdited, setSshServerBeingEdited] = useState<SshServerConfig | null>(null)
   const [sshServers, setSshServers] = useState<SshServerConfig[]>([])
@@ -4073,27 +4144,28 @@ function TerminalApp(): React.JSX.Element {
     availableTerminalFontOptions.find(
       (fontOption) => fontOption.id === selectedTerminalFontFamilyId
     ) ?? defaultTerminalFontOption
+  const isSettingsTransferInProgress = settingsTransferAction !== null
+
+  const applyAppSettings = useCallback((settings: AppSettings): void => {
+    const normalizedSettings = getNormalizedAppSettings(settings)
+
+    setDefaultNewTabDirectory(normalizedSettings.defaultNewTabDirectory)
+    setQuickCommands(normalizedSettings.quickCommands)
+    setSelectedStartupMode(normalizedSettings.startupMode)
+    setSelectedTerminalColorSchemeId(normalizedSettings.terminalColorSchemeId)
+    setSelectedTerminalCursorBlink(normalizedSettings.terminalCursorBlink)
+    setSelectedTerminalCursorColor(normalizedSettings.terminalCursorColor)
+    setSelectedTerminalSelectionColor(normalizedSettings.terminalSelectionColor)
+    setSelectedTerminalCursorStyle(normalizedSettings.terminalCursorStyle)
+    setSelectedTerminalCursorWidth(normalizedSettings.terminalCursorWidth)
+    setSelectedTerminalFontFamilyId(normalizedSettings.terminalFontFamilyId)
+    setSelectedTerminalFontSize(normalizedSettings.terminalFontSize)
+    setSelectedTerminalFontWeight(normalizedSettings.terminalFontWeight)
+    setSelectedTerminalLineHeight(normalizedSettings.terminalLineHeight)
+  }, [])
 
   useEffect(() => {
     let isCancelled = false
-
-    const applyLoadedSettings = (settings: AppSettings): void => {
-      const normalizedSettings = getNormalizedAppSettings(settings)
-
-      setDefaultNewTabDirectory(normalizedSettings.defaultNewTabDirectory)
-      setQuickCommands(normalizedSettings.quickCommands)
-      setSelectedStartupMode(normalizedSettings.startupMode)
-      setSelectedTerminalColorSchemeId(normalizedSettings.terminalColorSchemeId)
-      setSelectedTerminalCursorBlink(normalizedSettings.terminalCursorBlink)
-      setSelectedTerminalCursorColor(normalizedSettings.terminalCursorColor)
-      setSelectedTerminalSelectionColor(normalizedSettings.terminalSelectionColor)
-      setSelectedTerminalCursorStyle(normalizedSettings.terminalCursorStyle)
-      setSelectedTerminalCursorWidth(normalizedSettings.terminalCursorWidth)
-      setSelectedTerminalFontFamilyId(normalizedSettings.terminalFontFamilyId)
-      setSelectedTerminalFontSize(normalizedSettings.terminalFontSize)
-      setSelectedTerminalFontWeight(normalizedSettings.terminalFontWeight)
-      setSelectedTerminalLineHeight(normalizedSettings.terminalLineHeight)
-    }
 
     void (async () => {
       try {
@@ -4104,7 +4176,7 @@ function TerminalApp(): React.JSX.Element {
         }
 
         if (savedSettings) {
-          applyLoadedSettings(savedSettings)
+          applyAppSettings(savedSettings)
         }
       } catch (error) {
         console.error('Unable to load the saved app settings.', error)
@@ -4117,6 +4189,67 @@ function TerminalApp(): React.JSX.Element {
 
     return () => {
       isCancelled = true
+    }
+  }, [applyAppSettings])
+
+  const handleImportSettings = useCallback(async (): Promise<void> => {
+    setSettingsTransferAction('import')
+    setSettingsTransferMessage(null)
+
+    try {
+      const result = await window.api.settings.importFromFile()
+
+      if (!result) {
+        return
+      }
+
+      applyAppSettings(result.settings)
+      void window.api.ssh
+        .listConfigs()
+        .then((configs) => {
+          setSshServers(configs)
+        })
+        .catch((error) => {
+          console.error('Unable to reload SSH servers after importing settings.', error)
+        })
+      setSettingsTransferTone('success')
+      setSettingsTransferMessage(`Imported settings from ${result.filePath}.`)
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim() !== ''
+          ? error.message
+          : 'Unable to import settings.'
+
+      setSettingsTransferTone('error')
+      setSettingsTransferMessage(message)
+    } finally {
+      setSettingsTransferAction(null)
+    }
+  }, [applyAppSettings])
+
+  const handleExportSettings = useCallback(async (): Promise<void> => {
+    setSettingsTransferAction('export')
+    setSettingsTransferMessage(null)
+
+    try {
+      const result = await window.api.settings.exportToFile()
+
+      if (!result) {
+        return
+      }
+
+      setSettingsTransferTone('success')
+      setSettingsTransferMessage(`Exported settings to ${result.filePath}.`)
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim() !== ''
+          ? error.message
+          : 'Unable to export settings.'
+
+      setSettingsTransferTone('error')
+      setSettingsTransferMessage(message)
+    } finally {
+      setSettingsTransferAction(null)
     }
   }, [])
 
@@ -7829,8 +7962,11 @@ function TerminalApp(): React.JSX.Element {
         <SettingsDialog
           availableTerminalFontOptions={availableTerminalFontOptions}
           defaultNewTabDirectory={defaultNewTabDirectory}
+          isSettingsTransferInProgress={isSettingsTransferInProgress}
           onClose={handleCloseSettingsDialog}
           onDefaultNewTabDirectoryChange={setDefaultNewTabDirectory}
+          onExportSettings={handleExportSettings}
+          onImportSettings={handleImportSettings}
           onQuickCommandsChange={setQuickCommands}
           onStartupModeChange={setSelectedStartupMode}
           onTerminalColorSchemeChange={setSelectedTerminalColorSchemeId}
@@ -7844,6 +7980,9 @@ function TerminalApp(): React.JSX.Element {
           onTerminalFontWeightChange={setSelectedTerminalFontWeight}
           onTerminalLineHeightChange={setSelectedTerminalLineHeight}
           quickCommands={quickCommands}
+          settingsTransferAction={settingsTransferAction}
+          settingsTransferMessage={settingsTransferMessage}
+          settingsTransferTone={settingsTransferTone}
           selectedStartupMode={selectedStartupMode}
           selectedTerminalColorSchemeId={selectedTerminalColorSchemeId}
           selectedTerminalCursorBlink={selectedTerminalCursorBlink}

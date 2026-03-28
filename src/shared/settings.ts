@@ -32,7 +32,18 @@ export interface AppSettings {
   version: 1
 }
 
+export interface SettingsImportResult {
+  filePath: string
+  settings: AppSettings
+}
+
+export interface SettingsExportResult {
+  filePath: string
+}
+
 export interface SettingsApi {
+  exportToFile: () => Promise<SettingsExportResult | null>
+  importFromFile: () => Promise<SettingsImportResult | null>
   load: () => Promise<AppSettings | null>
   save: (settings: AppSettings) => Promise<void>
 }

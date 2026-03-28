@@ -78,6 +78,8 @@ const session: SessionApi = {
 }
 
 const settings: SettingsApi = {
+  exportToFile: () => ipcRenderer.invoke('settings:export-to-file'),
+  importFromFile: () => ipcRenderer.invoke('settings:import-from-file'),
   load: () => ipcRenderer.invoke('settings:load'),
   save: (appSettings) => ipcRenderer.invoke('settings:save', appSettings)
 }

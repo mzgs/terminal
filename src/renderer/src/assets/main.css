@@ -1686,6 +1686,71 @@ body {
   gap: 12px;
 }
 
+.settings-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-transfer-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 170px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(119, 215, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(9, 14, 22, 0.72);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.settings-transfer-button:hover,
+.settings-transfer-button:focus-visible {
+  border-color: rgba(119, 215, 255, 0.3);
+  background: rgba(12, 18, 28, 0.92);
+  outline: none;
+}
+
+.settings-transfer-button:disabled {
+  opacity: 0.58;
+  cursor: wait;
+}
+
+.settings-transfer-button-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  stroke-width: 2;
+}
+
+.settings-transfer-status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.settings-transfer-status.is-success {
+  color: #9fd6b4;
+}
+
+.settings-transfer-status.is-error {
+  color: #ff8e8e;
+}
+
 .settings-table-shell {
   overflow-x: auto;
   border: 1px solid rgba(119, 215, 255, 0.12);
@@ -2729,6 +2794,14 @@ body {
   .settings-general-grid,
   .settings-color-scheme-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-transfer-actions {
+    flex-direction: column;
+  }
+
+  .settings-transfer-button {
+    width: 100%;
   }
 
   .ssh-config-header {
