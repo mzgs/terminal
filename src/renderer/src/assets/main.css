@@ -1186,6 +1186,11 @@ body {
   stroke-width: 2.1;
 }
 
+.quick-open-item-icon-image {
+  display: block;
+  object-fit: contain;
+}
+
 .quick-open-search-icon {
   flex: 0 0 auto;
   color: rgba(181, 198, 220, 0.72);

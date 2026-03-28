@@ -231,6 +231,7 @@ interface QuickOpenCommandItem {
   icon: LucideIcon
   id: string
   keywords: string[]
+  sshServerIcon?: SshServerIcon | null
   shortcut: string[]
   title: string
 }
@@ -6321,6 +6322,7 @@ function TerminalApp(): React.JSX.Element {
           target,
           trimmedDescription
         ].filter((keyword) => keyword !== ''),
+        sshServerIcon: server.icon,
         shortcut: [],
         title: server.name
       }
@@ -7781,7 +7783,14 @@ function TerminalApp(): React.JSX.Element {
                         type="button"
                       >
                         <span className="quick-open-item-icon-shell">
-                          <Icon aria-hidden="true" className="quick-open-item-icon" />
+                          {command.sshServerIcon !== undefined ? (
+                            <SshServerIconGlyph
+                              className="quick-open-item-icon quick-open-item-icon-image"
+                              icon={command.sshServerIcon}
+                            />
+                          ) : (
+                            <Icon aria-hidden="true" className="quick-open-item-icon" />
+                          )}
                         </span>
                         <span className="quick-open-item-copy">
                           <span className="quick-open-item-row">
