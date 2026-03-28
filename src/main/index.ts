@@ -89,7 +89,6 @@ let sshServers: SshServerConfig[] = []
 const settingsStoreFileName = 'settings.json'
 const sessionStoreFileName = 'terminal-session.json'
 const mainWindowStateStoreFileName = 'window-state.json'
-const sshServersStoreFileName = 'ssh-servers.json'
 const sshPasswordEncryptionSecret = 'T3rm!nal_SSH#2026$Vaulfe35dt@91xZ'
 const sshPasswordEncryptionPrefix = 'enc-v1'
 const sshPasswordEncryptionKey = createHash('sha256').update(sshPasswordEncryptionSecret).digest()
@@ -569,6 +568,16 @@ function stripSshServerPassword(config: SshServerConfig): SshServerConfig {
   }
 }
 
+function parsePersistedSshServers(value: unknown): SshServerConfig[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+
+  return value
+    .map((config) => parsePersistedSshServerConfig(config))
+    .filter((config): config is SshServerConfig => config !== null)
+}
+
 function parsePersistedSshServerConfig(value: unknown): SshServerConfig | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -608,10 +617,6 @@ function parsePersistedSshServerConfig(value: unknown): SshServerConfig | null {
     port: Math.max(1, Math.floor(portValue)),
     username: record.username.trim()
   }
-}
-
-function getSshServersStorePath(): string {
-  return join(app.getPath('userData'), sshServersStoreFileName)
 }
 
 function getSettingsStorePath(): string {
@@ -666,7 +671,7 @@ function decryptSshPassword(password: string): string | null {
     !encryptedBase64 ||
     rest.length > 0
   ) {
-    console.warn('Unexpected SSH password format in ssh-servers.json')
+    console.warn('Unexpected SSH password format in persisted settings')
     return null
   }
 
@@ -683,7 +688,7 @@ function decryptSshPassword(password: string): string | null {
       decipher.final()
     ]).toString('utf8')
   } catch (error) {
-    console.warn('Failed to decrypt SSH password from ssh-servers.json', error)
+    console.warn('Failed to decrypt SSH password from persisted settings', error)
     return null
   }
 }
@@ -1512,6 +1517,9 @@ function persistSessionSnapshot(snapshot: SessionSnapshot): void {
 }
 
 const defaultAppStartupMode: AppStartupMode = 'restorePreviousSession'
+const defaultTerminalColorSchemeId = 'midnight-blue'
+const defaultTerminalFontFamilyId = 'JetBrains Mono Variable'
+const defaultTerminalFontWeight = '400'
 const defaultTerminalCursorStyle: TerminalCursorStyle = 'bar'
 const defaultTerminalCursorBlink = true
 const defaultTerminalCursorWidth = 2
@@ -1741,9 +1749,49 @@ function parsePersistedSettings(value: unknown): AppSettings | null {
   }
 }
 
-function persistSettings(settings: AppSettings): void {
+function createDefaultAppSettings(): AppSettings {
+  return {
+    general: {
+      defaultNewTabDirectory: '',
+      startupMode: defaultAppStartupMode
+    },
+    quickCommands: [],
+    terminal: {
+      colorSchemeId: defaultTerminalColorSchemeId,
+      cursorBlink: defaultTerminalCursorBlink,
+      cursorColor: null,
+      selectionColor: null,
+      cursorStyle: defaultTerminalCursorStyle,
+      cursorWidth: defaultTerminalCursorWidth,
+      fontFamilyId: defaultTerminalFontFamilyId,
+      fontSize: 14,
+      fontWeight: defaultTerminalFontWeight,
+      lineHeight: defaultTerminalLineHeight
+    },
+    version: 1
+  }
+}
+
+function getSettingsForPersistence(): AppSettings {
+  if (persistedSettings) {
+    return persistedSettings
+  }
+
+  const defaultSettings = createDefaultAppSettings()
+  persistedSettings = defaultSettings
+  return defaultSettings
+}
+
+function persistSettings(
+  settings: AppSettings,
+  nextSshServers: SshServerConfig[] = sshServers
+): void {
   try {
-    writeFileSync(getSettingsStorePath(), JSON.stringify(settings, null, 2), 'utf8')
+    writeFileSync(
+      getSettingsStorePath(),
+      JSON.stringify({ ...settings, sshServers: nextSshServers }, null, 2),
+      'utf8'
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Unable to persist settings: ${message}`)
@@ -1761,6 +1809,7 @@ function persistMainWindowState(state: PersistedMainWindowState): void {
 
 function loadPersistedSettings(): void {
   const storePath = getSettingsStorePath()
+  sshServers = []
 
   if (!existsSync(storePath)) {
     persistedSettings = null
@@ -1769,7 +1818,8 @@ function loadPersistedSettings(): void {
 
   try {
     const rawValue = readFileSync(storePath, 'utf8')
-    const parsedValue = parsePersistedSettings(JSON.parse(rawValue))
+    const parsedRawValue: unknown = JSON.parse(rawValue)
+    const parsedValue = parsePersistedSettings(parsedRawValue)
 
     if (!parsedValue) {
       console.warn(`Unexpected settings store format in ${storePath}`)
@@ -1778,9 +1828,24 @@ function loadPersistedSettings(): void {
     }
 
     persistedSettings = parsedValue
+
+    if (parsedRawValue && typeof parsedRawValue === 'object') {
+      const sshServersValue = (parsedRawValue as Record<string, unknown>).sshServers
+
+      if (sshServersValue !== undefined) {
+        const parsedSshServers = parsePersistedSshServers(sshServersValue)
+
+        if (!parsedSshServers) {
+          console.warn(`Unexpected SSH server store format in ${storePath}`)
+        } else {
+          sshServers = parsedSshServers
+        }
+      }
+    }
   } catch (error) {
     console.warn(`Failed to load settings from ${storePath}`, error)
     persistedSettings = null
+    sshServers = []
   }
 }
 
@@ -1934,37 +1999,10 @@ function getMainWindowBounds(): MainWindowBounds {
 
 function persistSshServers(nextSshServers: SshServerConfig[]): void {
   try {
-    writeFileSync(getSshServersStorePath(), JSON.stringify(nextSshServers, null, 2), 'utf8')
+    persistSettings(getSettingsForPersistence(), nextSshServers)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Unable to persist SSH servers: ${message}`)
-  }
-}
-
-function loadPersistedSshServers(): void {
-  const storePath = getSshServersStorePath()
-
-  if (!existsSync(storePath)) {
-    sshServers = []
-    return
-  }
-
-  try {
-    const rawValue = readFileSync(storePath, 'utf8')
-    const parsedValue: unknown = JSON.parse(rawValue)
-
-    if (!Array.isArray(parsedValue)) {
-      console.warn(`Unexpected SSH server store format in ${storePath}`)
-      sshServers = []
-      return
-    }
-
-    sshServers = parsedValue
-      .map((config) => parsePersistedSshServerConfig(config))
-      .filter((config): config is SshServerConfig => config !== null)
-  } catch (error) {
-    console.warn(`Failed to load SSH servers from ${storePath}`, error)
-    sshServers = []
   }
 }
 
@@ -2335,7 +2373,6 @@ app.whenReady().then(() => {
   loadPersistedMainWindowState()
   loadPersistedSettings()
   loadPersistedSession()
-  loadPersistedSshServers()
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
