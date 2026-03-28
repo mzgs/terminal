@@ -28,6 +28,7 @@ import type {
   TerminalCursorStyle
 } from '../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../shared/session'
+import type { LocalTextFile } from '../shared/shell'
 import {
   normalizeSshServerIcon,
   type SshDownloadProgressEvent,
@@ -103,7 +104,8 @@ const sshRemoteDirectoryListingEndMarker = '__TERMINAL_REMOTE_DIR_END__'
 const sshConnectTimeoutSeconds = 10
 const sshServerAliveIntervalSeconds = 5
 const sshServerAliveCountMax = 2
-const maxSshRemoteTextFileBytes = 1024 * 1024
+const maxLocalTextFileBytes = 100 * 1024 * 1024
+const maxSshRemoteTextFileBytes = 16 * 1024 * 1024
 const defaultMainWindowWidth = 1000
 const defaultMainWindowHeight = 600
 const minMainWindowWidth = 640
@@ -2444,6 +2446,67 @@ async function writeSshTextFile(configId: string, path: string, content: string)
   }
 }
 
+async function readLocalTextFile(path: string): Promise<LocalTextFile> {
+  const normalizedPath = path.trim()
+
+  if (normalizedPath === '') {
+    throw new Error('Local file path is required.')
+  }
+
+  let fileStats: ReturnType<typeof statSync>
+
+  try {
+    fileStats = statSync(normalizedPath)
+  } catch {
+    throw new Error('Local file not found.')
+  }
+
+  if (!fileStats.isFile()) {
+    throw new Error('Only files can be edited here.')
+  }
+
+  if (fileStats.size > maxLocalTextFileBytes) {
+    throw new Error(
+      `This file is too large to edit here (${formatFileSize(fileStats.size)}). Limit: ${formatFileSize(maxLocalTextFileBytes)}.`
+    )
+  }
+
+  const fileBuffer = readFileSync(normalizedPath)
+
+  if (!isProbablyTextBuffer(fileBuffer)) {
+    throw new Error('This local file looks binary and cannot be edited as text.')
+  }
+
+  return {
+    content: fileBuffer.toString('utf8'),
+    path: normalizedPath,
+    size: fileStats.size
+  }
+}
+
+async function writeLocalTextFile(path: string, content: string): Promise<void> {
+  const normalizedPath = path.trim()
+
+  if (normalizedPath === '') {
+    throw new Error('Local file path is required.')
+  }
+
+  if (existsSync(normalizedPath) && !statSync(normalizedPath).isFile()) {
+    throw new Error('Only files can be saved here.')
+  }
+
+  const nextContent = typeof content === 'string' ? content : ''
+  const nextContentBuffer = Buffer.from(nextContent, 'utf8')
+
+  if (nextContentBuffer.byteLength > maxLocalTextFileBytes) {
+    throw new Error(
+      `This file is too large to save here (${formatFileSize(nextContentBuffer.byteLength)}). Limit: ${formatFileSize(maxLocalTextFileBytes)}.`
+    )
+  }
+
+  writeFileSync(normalizedPath, nextContentBuffer)
+}
+
 async function downloadSshPath(
   webContents: WebContents,
   configId: string,
@@ -2523,11 +2586,11 @@ async function uploadSshPaths(
   )
 }
 
-async function openFolderPath(path: string): Promise<void> {
+async function openShellPath(path: string): Promise<void> {
   const normalizedPath = path.trim()
 
-  if (normalizedPath === '' || !isDirectory(normalizedPath)) {
-    throw new Error('Folder not found.')
+  if (normalizedPath === '' || !existsSync(normalizedPath)) {
+    throw new Error('Path not found.')
   }
 
   const errorMessage = await shell.openPath(normalizedPath)
@@ -2706,7 +2769,11 @@ app.whenReady().then(() => {
     createTerminal(event.sender, options)
   )
   ipcMain.handle('shell:open-external', (_event, url: string) => openExternalUrl(url))
-  ipcMain.handle('shell:open-path', (_event, path: string) => openFolderPath(path))
+  ipcMain.handle('shell:open-path', (_event, path: string) => openShellPath(path))
+  ipcMain.handle('shell:read-text-file', (_event, path: string) => readLocalTextFile(path))
+  ipcMain.handle('shell:write-text-file', (_event, payload: { content: string; path: string }) =>
+    writeLocalTextFile(payload.path, payload.content)
+  )
   ipcMain.handle('settings:export-to-file', () => exportSettingsToFile())
   ipcMain.handle('settings:import-from-file', () => importSettingsFromFile())
   ipcMain.handle('settings:load', () => listPersistedSettings())

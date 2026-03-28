@@ -3,7 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { ClipboardApi } from '../shared/clipboard'
 import type { SettingsApi } from '../shared/settings'
 import type { SessionApi } from '../shared/session'
-import type { ShellApi } from '../shared/shell'
+import type { LocalTextFile, ShellApi } from '../shared/shell'
 import type {
   SshApi,
   SshDownloadProgressEvent,
@@ -88,7 +88,14 @@ const settings: SettingsApi = {
 
 const shell: ShellApi = {
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
-  openPath: (path) => ipcRenderer.invoke('shell:open-path', path)
+  openPath: (path) => ipcRenderer.invoke('shell:open-path', path),
+  readTextFile: (path) =>
+    ipcRenderer.invoke('shell:read-text-file', path) as Promise<LocalTextFile>,
+  writeTextFile: (path, content) =>
+    ipcRenderer.invoke('shell:write-text-file', {
+      content,
+      path
+    })
 }
 
 const clipboardApi: ClipboardApi = {

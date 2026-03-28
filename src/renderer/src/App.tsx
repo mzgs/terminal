@@ -71,6 +71,7 @@ import type {
   TerminalCursorStyle
 } from '../../shared/settings'
 import type { RestorableTabState, SessionSnapshot, SessionTabSnapshot } from '../../shared/session'
+import type { LocalTextFile } from '../../shared/shell'
 import {
   defaultSshServerIcon,
   type SshAuthMethod,
@@ -155,8 +156,7 @@ interface SshBrowserContextMenuState {
 
 type SshRemoteEditorLineEnding = '\n' | '\r' | '\r\n'
 
-interface SshRemoteEditorState {
-  configId: string
+interface BaseSshRemoteEditorState {
   content: string
   errorMessage: string | null
   initialContent: string
@@ -167,6 +167,15 @@ interface SshRemoteEditorState {
   tabId: string
 }
 
+type SshRemoteEditorState =
+  | (BaseSshRemoteEditorState & {
+      kind: 'local'
+    })
+  | (BaseSshRemoteEditorState & {
+      configId: string
+      kind: 'ssh'
+    })
+
 interface SshRemoteEditorLoadingState {
   fileName: string
   path: string
@@ -176,6 +185,8 @@ interface SshRemoteEditorSyntaxLanguage {
   extensions: Extension[]
   label: string
 }
+
+type TextEditorFile = LocalTextFile | SshRemoteTextFile
 
 interface TerminalContextMenuState {
   quickDownloadAction: TerminalQuickDownloadAction | null
@@ -188,7 +199,6 @@ interface TerminalContextMenuState {
 
 interface TerminalQuickDownloadAction {
   configId: string
-  fileName: string
   remotePath: string
 }
 
@@ -2122,13 +2132,18 @@ function joinRemoteDirectoryPath(basePath: string, name: string): string {
 }
 
 function getRemotePathBaseName(path: string): string {
-  const normalizedPath = path.replace(/\/+$/, '')
+  const normalizedPath = path.replace(/[\\/]+$/, '')
 
-  if (normalizedPath === '' || normalizedPath === '/') {
+  if (
+    normalizedPath === '' ||
+    normalizedPath === '/' ||
+    normalizedPath === '\\' ||
+    /^[a-z]:$/i.test(normalizedPath)
+  ) {
     return path
   }
 
-  const lastSlashIndex = normalizedPath.lastIndexOf('/')
+  const lastSlashIndex = Math.max(normalizedPath.lastIndexOf('/'), normalizedPath.lastIndexOf('\\'))
 
   return lastSlashIndex >= 0 ? normalizedPath.slice(lastSlashIndex + 1) : normalizedPath
 }
@@ -2263,6 +2278,23 @@ function normalizeTerminalSelectionForArchivePath(selectionText: string): string
   }
 
   return normalizedSelection
+}
+
+function isAbsoluteLocalPath(path: string): boolean {
+  return path.startsWith('/') || /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\')
+}
+
+function joinLocalDirectoryPath(basePath: string, name: string): string {
+  const normalizedBasePath = basePath.trim().replace(/[\\/]+$/, '')
+
+  if (normalizedBasePath === '') {
+    return name
+  }
+
+  const separator =
+    normalizedBasePath.includes('\\') || /^[a-z]:$/i.test(normalizedBasePath) ? '\\' : '/'
+
+  return `${normalizedBasePath}${separator}${name.replace(/^[\\/]+/, '')}`
 }
 
 function buildTerminalExtractArchiveCommand(
@@ -2410,9 +2442,37 @@ function getTerminalQuickDownloadAction(
 
   return {
     configId: tab.restoreState.configId,
-    fileName: getRemotePathBaseName(remotePath),
     remotePath
   }
+}
+
+function getTerminalQuickLocalEditPath(tab: TabRecord, selectionText: string): string | null {
+  if (tab.restoreState.kind !== 'local') {
+    return null
+  }
+
+  const normalizedSelection = normalizeTerminalSelectionForArchivePath(selectionText)
+
+  if (
+    !normalizedSelection ||
+    normalizedSelection === '~' ||
+    normalizedSelection.startsWith('~/') ||
+    normalizedSelection.startsWith('~\\')
+  ) {
+    return null
+  }
+
+  const localPath = isAbsoluteLocalPath(normalizedSelection)
+    ? normalizedSelection
+    : tab.restoreState.cwd
+      ? joinLocalDirectoryPath(tab.restoreState.cwd, normalizedSelection)
+      : null
+
+  if (!localPath) {
+    return null
+  }
+
+  return localPath
 }
 
 function getRemoteDirectoryParentPath(path: string): string | null {
@@ -5121,8 +5181,12 @@ function TerminalApp(): React.JSX.Element {
         : previousState
     )
 
-    void window.api.ssh
-      .writeTextFile(currentState.configId, currentState.path, nextContent)
+    const saveRequest =
+      currentState.kind === 'ssh'
+        ? window.api.ssh.writeTextFile(currentState.configId, currentState.path, nextContent)
+        : window.api.shell.writeTextFile(currentState.path, nextContent)
+
+    void saveRequest
       .then(() => {
         setSshRemoteEditorState((previousState) =>
           previousState && previousState.path === currentState.path
@@ -5144,7 +5208,11 @@ function TerminalApp(): React.JSX.Element {
           previousState && previousState.path === currentState.path
             ? {
                 ...previousState,
-                errorMessage: message || 'Unable to save this remote file.',
+                errorMessage:
+                  message ||
+                  (currentState.kind === 'ssh'
+                    ? 'Unable to save this remote file.'
+                    : 'Unable to save this local file.'),
                 isSaving: false
               }
             : previousState
@@ -7161,6 +7229,15 @@ function TerminalApp(): React.JSX.Element {
   const activeSshBrowserWidth = activeTabId
     ? (sshBrowserWidths[activeTabId] ?? defaultSshBrowserWidth)
     : defaultSshBrowserWidth
+  const terminalContextMenuTab = terminalContextMenu
+    ? (tabs.find((tab) => tab.id === terminalContextMenu.tabId) ?? null)
+    : null
+  const terminalContextMenuLocalEditPath =
+    terminalContextMenuTab?.restoreState.kind === 'local' && terminalContextMenu
+      ? getTerminalQuickLocalEditPath(terminalContextMenuTab, terminalContextMenu.selectionText)
+      : null
+  const canEditTerminalContextSelection =
+    terminalContextMenu?.quickDownloadAction !== null || terminalContextMenuLocalEditPath !== null
   const mountedSshBrowserTabs = tabs.filter((tab) => sshBrowserStates[tab.id] !== undefined)
   const hasMountedSshBrowsers = mountedSshBrowserTabs.length > 0
   const terminalWorkspaceStyle = {
@@ -7482,9 +7559,16 @@ function TerminalApp(): React.JSX.Element {
       const selectionText = runtime.terminal.getSelection()
       const tab = tabsRef.current.find((currentTab) => currentTab.id === tabId)
       const quickDownloadAction = tab ? getTerminalQuickDownloadAction(tab, selectionText) : null
+      const quickLocalEditPath = tab ? getTerminalQuickLocalEditPath(tab, selectionText) : null
       const quickExtractAction = tab ? getTerminalQuickExtractAction(tab, selectionText) : null
+      const hasQuickEditAction =
+        tab?.restoreState.kind === 'ssh'
+          ? quickDownloadAction !== null
+          : quickLocalEditPath !== null
       const quickActionCount =
-        Number(Boolean(quickDownloadAction)) + Number(Boolean(quickExtractAction))
+        Number(Boolean(quickDownloadAction)) +
+        Number(Boolean(hasQuickEditAction)) +
+        Number(Boolean(quickExtractAction))
 
       const menuPadding = 12
       const menuWidth = 296
@@ -7502,6 +7586,104 @@ function TerminalApp(): React.JSX.Element {
       })
     },
     []
+  )
+
+  const openTextEditorFile = useCallback(
+    (
+      options:
+        | {
+            kind: 'local'
+            path: string
+            tabId: string
+          }
+        | {
+            configId: string
+            kind: 'ssh'
+            path: string
+            tabId: string
+          }
+    ): boolean => {
+      if (!closeSshRemoteEditor()) {
+        return false
+      }
+
+      if (options.kind === 'ssh') {
+        updateSshBrowserState(options.tabId, (currentState) => ({
+          ...currentState,
+          errorMessage: null,
+          isLoading: true
+        }))
+      }
+
+      setSshRemoteEditorLoadingState({
+        fileName: getRemotePathBaseName(options.path),
+        path: options.path
+      })
+
+      const readRequest: Promise<TextEditorFile> =
+        options.kind === 'ssh'
+          ? window.api.ssh.readTextFile(options.configId, options.path)
+          : window.api.shell.readTextFile(options.path)
+
+      void readRequest
+        .then((file) => {
+          setSshRemoteEditorLoadingState(null)
+          const nextEditorState: SshRemoteEditorState =
+            options.kind === 'ssh'
+              ? {
+                  configId: options.configId,
+                  content: file.content,
+                  errorMessage: null,
+                  initialContent: file.content,
+                  isSaving: false,
+                  kind: 'ssh',
+                  lineEnding: detectSshRemoteEditorLineEnding(file.content),
+                  path: file.path,
+                  size: file.size,
+                  tabId: options.tabId
+                }
+              : {
+                  content: file.content,
+                  errorMessage: null,
+                  initialContent: file.content,
+                  isSaving: false,
+                  kind: 'local',
+                  lineEnding: detectSshRemoteEditorLineEnding(file.content),
+                  path: file.path,
+                  size: file.size,
+                  tabId: options.tabId
+                }
+
+          setSshRemoteEditorState(nextEditorState)
+
+          if (options.kind === 'ssh') {
+            updateSshBrowserState(options.tabId, (currentState) => ({
+              ...currentState,
+              errorMessage: null,
+              isLoading: false
+            }))
+          }
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+          setSshRemoteEditorLoadingState(null)
+
+          if (options.kind === 'ssh') {
+            updateSshBrowserState(options.tabId, (currentState) => ({
+              ...currentState,
+              errorMessage: message || 'Unable to open this remote file.',
+              isLoading: false
+            }))
+          } else {
+            window.alert(message || 'Unable to open this local file.')
+          }
+
+          console.error(`Unable to open ${options.kind} file "${options.path}".`, error)
+        })
+
+      return true
+    },
+    [closeSshRemoteEditor, updateSshBrowserState]
   )
 
   const handleCopyTerminalSelection = useCallback((): void => {
@@ -7547,6 +7729,60 @@ function TerminalApp(): React.JSX.Element {
     closeTerminalContextMenu()
   }, [closeTerminalContextMenu, terminalContextMenu])
 
+  const handleEditTerminalSelection = useCallback((): void => {
+    const currentMenu = terminalContextMenu
+
+    if (!currentMenu) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    const runtime = runtimesRef.current.get(currentMenu.tabId)
+    const tab = tabsRef.current.find((currentTab) => currentTab.id === currentMenu.tabId)
+
+    if (!runtime || runtime.disposed || !tab) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    runtime.terminal.focus()
+
+    if (currentMenu.quickDownloadAction) {
+      const didOpen = openTextEditorFile({
+        configId: currentMenu.quickDownloadAction.configId,
+        kind: 'ssh',
+        path: currentMenu.quickDownloadAction.remotePath,
+        tabId: currentMenu.tabId
+      })
+
+      if (!didOpen) {
+        return
+      }
+
+      closeTerminalContextMenu()
+      return
+    }
+
+    const localPath = getTerminalQuickLocalEditPath(tab, currentMenu.selectionText)
+
+    if (!localPath) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    const didOpen = openTextEditorFile({
+      kind: 'local',
+      path: localPath,
+      tabId: currentMenu.tabId
+    })
+
+    if (!didOpen) {
+      return
+    }
+
+    closeTerminalContextMenu()
+  }, [closeTerminalContextMenu, openTextEditorFile, terminalContextMenu])
+
   const handleDownloadTerminalSelection = useCallback((): void => {
     const currentMenu = terminalContextMenu
 
@@ -7561,7 +7797,6 @@ function TerminalApp(): React.JSX.Element {
       closeTerminalContextMenu()
       return
     }
-
     const { configId, remotePath } = currentMenu.quickDownloadAction
 
     runtime.terminal.focus()
@@ -7703,57 +7938,21 @@ function TerminalApp(): React.JSX.Element {
         return
       }
 
-      if (!closeSshRemoteEditor()) {
+      const remotePath = joinRemoteDirectoryPath(browserState.path, entry.name)
+      const didOpen = openTextEditorFile({
+        configId: browserState.configId,
+        kind: 'ssh',
+        path: remotePath,
+        tabId: browserState.tabId
+      })
+
+      if (!didOpen) {
         return
       }
 
       closeSshBrowserContextMenu()
-      updateSshBrowserState(browserState.tabId, (currentState) => ({
-        ...currentState,
-        errorMessage: null,
-        isLoading: true
-      }))
-
-      const remotePath = joinRemoteDirectoryPath(browserState.path, entry.name)
-      setSshRemoteEditorLoadingState({
-        fileName: entry.name,
-        path: remotePath
-      })
-
-      void window.api.ssh
-        .readTextFile(browserState.configId, remotePath)
-        .then((file: SshRemoteTextFile) => {
-          setSshRemoteEditorLoadingState(null)
-          setSshRemoteEditorState({
-            configId: browserState.configId,
-            content: file.content,
-            errorMessage: null,
-            initialContent: file.content,
-            isSaving: false,
-            lineEnding: detectSshRemoteEditorLineEnding(file.content),
-            path: file.path,
-            size: file.size,
-            tabId: browserState.tabId
-          })
-
-          updateSshBrowserState(browserState.tabId, (currentState) => ({
-            ...currentState,
-            errorMessage: null,
-            isLoading: false
-          }))
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error)
-          setSshRemoteEditorLoadingState(null)
-
-          updateSshBrowserState(browserState.tabId, (currentState) => ({
-            ...currentState,
-            errorMessage: message || 'Unable to open this remote file.',
-            isLoading: false
-          }))
-        })
     },
-    [closeSshBrowserContextMenu, closeSshRemoteEditor, updateSshBrowserState]
+    [closeSshBrowserContextMenu, openTextEditorFile]
   )
 
   const handleRenameSshBrowserEntry = useCallback(
@@ -8412,8 +8611,24 @@ function TerminalApp(): React.JSX.Element {
               top: terminalContextMenu.y
             }}
           >
-            {terminalContextMenu.quickDownloadAction || terminalContextMenu.quickExtractAction ? (
+            {canEditTerminalContextSelection ||
+            terminalContextMenu.quickDownloadAction ||
+            terminalContextMenu.quickExtractAction ? (
               <>
+                {canEditTerminalContextSelection ? (
+                  <button
+                    className="terminal-context-menu-item"
+                    onClick={handleEditTerminalSelection}
+                    role="menuitem"
+                    title="Open in editor"
+                    type="button"
+                  >
+                    <span className="terminal-context-menu-item-icon-shell">
+                      <Pencil aria-hidden="true" className="terminal-context-menu-icon" />
+                    </span>
+                    <span className="terminal-context-menu-label">Open in editor</span>
+                  </button>
+                ) : null}
                 {terminalContextMenu.quickDownloadAction ? (
                   <button
                     className="terminal-context-menu-item"
