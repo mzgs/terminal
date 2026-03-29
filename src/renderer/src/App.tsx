@@ -1,4 +1,13 @@
-import { type CSSProperties, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { java } from '@codemirror/lang-java'
@@ -5074,6 +5083,8 @@ function TerminalApp(): React.JSX.Element {
   const sshBrowserContextMenuRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<TabRecord[]>([])
   const sshBrowserStatesRef = useRef<SshBrowserStates>({})
+  const sshBrowserListElementsRef = useRef(new Map<string, HTMLDivElement>())
+  const previousSshBrowserFiltersRef = useRef(new Map<string, string>())
   const activeTabIdRef = useRef<string | null>(null)
   const isSearchOpenRef = useRef(false)
   const hostElementsRef = useRef(new Map<string, HTMLDivElement>())
@@ -6373,6 +6384,33 @@ function TerminalApp(): React.JSX.Element {
 
   useEffect(() => {
     sshBrowserStatesRef.current = sshBrowserStates
+  }, [sshBrowserStates])
+
+  useLayoutEffect(() => {
+    const previousFilters = previousSshBrowserFiltersRef.current
+
+    for (const [tabId, browserState] of Object.entries(sshBrowserStates)) {
+      const previousFilterQuery = previousFilters.get(tabId)
+
+      if (previousFilterQuery !== undefined && previousFilterQuery !== browserState.filterQuery) {
+        const listElement = sshBrowserListElementsRef.current.get(tabId)
+
+        if (listElement) {
+          listElement.scrollTop = 0
+        }
+      }
+
+      previousFilters.set(tabId, browserState.filterQuery)
+    }
+
+    for (const tabId of Array.from(previousFilters.keys())) {
+      if (sshBrowserStates[tabId] !== undefined) {
+        continue
+      }
+
+      previousFilters.delete(tabId)
+      sshBrowserListElementsRef.current.delete(tabId)
+    }
   }, [sshBrowserStates])
 
   useEffect(() => {
@@ -9173,11 +9211,6 @@ function TerminalApp(): React.JSX.Element {
                           </p>
                         </div>
                       </div>
-                      {browserState.path ? (
-                        <p className="ssh-browser-path" title={browserState.path}>
-                          {browserState.path}
-                        </p>
-                      ) : null}
                     </div>
                     <button
                       aria-label="Close remote browser"
@@ -9266,6 +9299,11 @@ function TerminalApp(): React.JSX.Element {
                       </label>
                     </div>
                   </div>
+                  {browserState.path ? (
+                    <p className="ssh-browser-path" title={browserState.path}>
+                      {browserState.path}
+                    </p>
+                  ) : null}
                   <div className="ssh-browser-section">
                     {browserSectionNote ? (
                       <p className="ssh-browser-section-note">{browserSectionNote}</p>
@@ -9274,7 +9312,17 @@ function TerminalApp(): React.JSX.Element {
                       <p className="ssh-browser-error">{browserState.errorMessage}</p>
                     ) : null}
                     <div className="ssh-browser-list-shell">
-                      <div className="ssh-browser-list">
+                      <div
+                        className="ssh-browser-list"
+                        ref={(node) => {
+                          if (!node) {
+                            sshBrowserListElementsRef.current.delete(tab.id)
+                            return
+                          }
+
+                          sshBrowserListElementsRef.current.set(tab.id, node)
+                        }}
+                      >
                         {!browserState.errorMessage && visibleEntries.length === 0 ? (
                           <div className="ssh-browser-empty">
                             {browserState.isLoading
