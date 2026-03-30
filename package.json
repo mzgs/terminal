@@ -1,7 +1,8 @@
 {
-  "name": "my-app",
+  "name": "terminal-flow",
+  "productName": "TerminalFlow",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "TerminalFlow desktop terminal and SSH workspace",
   "main": "./out/main/index.js",
   "author": "example.com",
   "homepage": "https://electron-vite.org",

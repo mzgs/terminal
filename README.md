@@ -1,6 +1,6 @@
-# Terminal
+# TerminalFlow
 
-Desktop terminal application built with Electron, React, `xterm.js`, and `node-pty`.
+Desktop terminal and SSH workspace built with Electron, React, `xterm.js`, and `node-pty`.
 
 ## Overview
 

@@ -9561,7 +9561,7 @@ function TerminalApp(): React.JSX.Element {
     <main className={`app-shell ${platformClassName}`}>
       <header className="window-titlebar">
         <div className="window-brand">
-          <span className="window-title">Terminal</span>
+          <span className="window-title">TerminalFlow</span>
           <span className="window-subtitle">
             {tabs.length} tab{tabs.length === 1 ? '' : 's'}
           </span>

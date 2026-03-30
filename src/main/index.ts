@@ -3085,7 +3085,7 @@ function isFindShortcutInput(input: Electron.Input): boolean {
 function createMainWindow(): BrowserWindow {
   const mainWindowBounds = getMainWindowBounds()
   const nextMainWindow = new BrowserWindow({
-    title: 'Terminal',
+    title: 'TerminalFlow',
     ...mainWindowBounds,
     show: false,
     autoHideMenuBar: true,
