@@ -13,15 +13,15 @@ TerminalFlow is an Electron-based terminal and SSH workspace built with React an
 
 ## ✨ Features
 
-- 🖥️ Local terminal tabs powered by `xterm.js` and `node-pty`
-- 🔐 Saved SSH servers with password or private-key authentication
-- 🪟 Split the active tab into side-by-side or stacked panes
-- 📁 Built-in SFTP browser with upload, download, rename, create, delete, and filtering
-- 📝 Open local or remote text files in the built-in editor with syntax highlighting
-- ⚡ Quick commands, command palette actions, and tab reordering
-- 🎨 Customizable terminal fonts, cursor styles, colors, and startup behavior
-- 💾 Previous session restore plus settings import/export
-- 🌍 Build targets configured for macOS, Windows, and Linux
+- Local terminal tabs powered by `xterm.js` and `node-pty`
+- Saved SSH servers with password or private-key authentication
+- Split the active tab into side-by-side or stacked panes
+- Built-in SFTP browser with upload, download, rename, create, delete, and filtering
+- Open local or remote text files in the built-in editor with syntax highlighting
+- Quick commands, command palette actions, and tab reordering
+- Customizable terminal fonts, cursor styles, colors, and startup behavior
+- Previous session restore plus settings import/export
+- Build targets configured for macOS, Windows, and Linux
 
 ## 🚀 Getting Started
 
