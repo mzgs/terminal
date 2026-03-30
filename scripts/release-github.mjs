@@ -27,7 +27,7 @@ function printHelp() {
   console.log(`Usage: npm run release:github -- [options]
 
 Options:
-  --version <value>   Release version. Defaults to package.json version.
+  --version <value>   Release version. Defaults to package.json version and auto-bumps patch if needed.
   --arch <values>     Comma-separated arch list. Defaults to arm64,x64.
   --notes-file <path> Use custom release notes instead of generated notes.
   --draft             Create the GitHub release as a draft.
@@ -161,11 +161,37 @@ for (let index = 0; index < args.length; index += 1) {
   }
 }
 
+function normalizeTag(value) {
+  return value.startsWith('v') ? value : `v${value}`
+}
+
+function parsePatchVersion(value) {
+  const normalizedValue = value.startsWith('v') ? value.slice(1) : value
+  const match = normalizedValue.match(/^(\d+)\.(\d+)\.(\d+)$/)
+
+  if (!match) {
+    return null
+  }
+
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3])
+  }
+}
+
+function incrementPatchVersion(value) {
+  const parsedVersion = parsePatchVersion(value)
+
+  if (!parsedVersion) {
+    fail(`Automatic version bump requires a MAJOR.MINOR.PATCH version. Received: ${value}`)
+  }
+
+  return `${parsedVersion.major}.${parsedVersion.minor}.${parsedVersion.patch + 1}`
+}
+
 const ROOT_DIR = resolve(new URL('..', import.meta.url).pathname)
 const packageJson = JSON.parse(readFileSync(resolve(ROOT_DIR, 'package.json'), 'utf8'))
-const version = options.version ?? packageJson.version
-const tag = version.startsWith('v') ? version : `v${version}`
-const releaseVersion = tag.startsWith('v') ? tag.slice(1) : tag
 const productName = packageJson.productName
 const packageName = packageJson.name
 const distDir = resolve(ROOT_DIR, 'dist')
@@ -204,6 +230,68 @@ if (!remoteMatch) {
   fail('origin must point to a GitHub repository.')
 }
 
+function collectExistingTags() {
+  const tags = new Set()
+  const localTagsOutput = capture('git', ['tag', '--list', 'v*'])
+  const remoteTagsResult = spawnSync('git', ['ls-remote', '--tags', 'origin', 'refs/tags/v*'], {
+    cwd: ROOT_DIR,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  if (remoteTagsResult.status !== 0) {
+    const errorText = (remoteTagsResult.stderr || remoteTagsResult.stdout || '').trim()
+    fail(errorText || 'Failed to list remote tags from origin.')
+  }
+
+  for (const tagName of localTagsOutput.split('\n').map((value) => value.trim()).filter(Boolean)) {
+    tags.add(tagName)
+  }
+
+  for (const line of remoteTagsResult.stdout.split('\n')) {
+    const [, ref = ''] = line.trim().split(/\s+/)
+    if (!ref) {
+      continue
+    }
+
+    const normalizedRef = ref.replace(/^refs\/tags\//, '').replace(/\^\{\}$/, '')
+    if (normalizedRef) {
+      tags.add(normalizedRef)
+    }
+  }
+
+  return tags
+}
+
+function resolveReleaseTag() {
+  const requestedTag = normalizeTag(options.version ?? packageJson.version)
+
+  if (options.version) {
+    return {
+      autoIncremented: false,
+      requestedTag,
+      tag: requestedTag
+    }
+  }
+
+  const existingTags = collectExistingTags()
+  let candidateTag = requestedTag
+  let candidateVersion = candidateTag.slice(1)
+  let autoIncremented = false
+
+  while (existingTags.has(candidateTag)) {
+    candidateVersion = incrementPatchVersion(candidateVersion)
+    candidateTag = normalizeTag(candidateVersion)
+    autoIncremented = true
+  }
+
+  return {
+    autoIncremented,
+    requestedTag,
+    tag: candidateTag
+  }
+}
+
 const owner = remoteUrl.startsWith('git@')
   ? remoteMatch[1]
   : remoteMatch[2]
@@ -219,6 +307,10 @@ if (!options.skipRelease && !githubToken) {
   fail('Set GITHUB_TOKEN or GH_TOKEN, or use an HTTPS origin URL with embedded credentials.')
 }
 
+const resolvedRelease = resolveReleaseTag()
+const tag = resolvedRelease.tag
+const releaseVersion = tag.startsWith('v') ? tag.slice(1) : tag
+const builderVersionOverrides = [`--config.extraMetadata.version=${releaseVersion}`]
 let assets = []
 
 function resolveAsset(label, candidateNames) {
@@ -389,9 +481,21 @@ console.log(
   `Preparing GitHub release ${tag} from ${branch} (${options.architectures.join(', ')})`
 )
 
+if (resolvedRelease.autoIncremented) {
+  console.log(
+    `Base version ${resolvedRelease.requestedTag} already exists. Using next available version ${tag}.`
+  )
+}
+
 if (!hasMacCodeSigningIdentity) {
   console.warn(
     'No macOS signing identity detected. macOS release artifacts will be ad-hoc signed with hardened runtime disabled.'
+  )
+}
+
+if (options.skipBuild && resolvedRelease.autoIncremented) {
+  console.warn(
+    `--skip-build is enabled, so dist/ must already contain artifacts for ${releaseVersion}.`
   )
 }
 
@@ -399,7 +503,13 @@ if (!options.skipBuild) {
   run('npm', ['run', 'build'], 'npm run build')
 
   for (const architecture of options.architectures) {
-    const macCommandArgs = ['electron-builder', '--mac', `--${architecture}`, ...macBuildOverrides]
+    const macCommandArgs = [
+      'electron-builder',
+      '--mac',
+      `--${architecture}`,
+      ...builderVersionOverrides,
+      ...macBuildOverrides
+    ]
 
     run(
       'npx',
@@ -408,14 +518,14 @@ if (!options.skipBuild) {
     )
     run(
       'npx',
-      ['electron-builder', '--win', `--${architecture}`],
-      `npx electron-builder --win --${architecture}`
+      ['electron-builder', '--win', `--${architecture}`, ...builderVersionOverrides],
+      `npx electron-builder --win --${architecture} ${builderVersionOverrides.join(' ')}`
     )
 
     const linuxResult = run(
       'npx',
-      ['electron-builder', '--linux', 'AppImage', `--${architecture}`],
-      `npx electron-builder --linux AppImage --${architecture}`,
+      ['electron-builder', '--linux', 'AppImage', `--${architecture}`, ...builderVersionOverrides],
+      `npx electron-builder --linux AppImage --${architecture} ${builderVersionOverrides.join(' ')}`,
       true
     )
 
