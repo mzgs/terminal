@@ -3098,7 +3098,7 @@ function createMainWindow(): BrowserWindow {
       : {
           titleBarStyle: 'default' as const
         }),
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -3213,6 +3213,10 @@ app.whenReady().then(() => {
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
+
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(icon)
+  }
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
