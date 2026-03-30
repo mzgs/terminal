@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import process from 'node:process'
 
@@ -168,6 +168,7 @@ const tag = version.startsWith('v') ? version : `v${version}`
 const releaseVersion = tag.startsWith('v') ? tag.slice(1) : tag
 const productName = packageJson.productName
 const packageName = packageJson.name
+const distDir = resolve(ROOT_DIR, 'dist')
 const supportedArchitectures = new Set(['arm64', 'x64'])
 const hasMacCodeSigningIdentity = hasMacSigningIdentity()
 const macBuildOverrides = hasMacCodeSigningIdentity
@@ -218,17 +219,51 @@ if (!options.skipRelease && !githubToken) {
   fail('Set GITHUB_TOKEN or GH_TOKEN, or use an HTTPS origin URL with embedded credentials.')
 }
 
-const assets = options.architectures.flatMap((architecture) => [
-  resolve(ROOT_DIR, 'dist', `${packageName}-${releaseVersion}-${architecture}.dmg`),
-  resolve(ROOT_DIR, 'dist', `${productName}-${releaseVersion}-${architecture}-mac.zip`),
-  resolve(ROOT_DIR, 'dist', `${packageName}-${releaseVersion}-${architecture}-setup.exe`),
-  resolve(ROOT_DIR, 'dist', `${packageName}-${releaseVersion}-${architecture}.AppImage`)
-])
+let assets = []
 
-function ensureAsset(path) {
-  if (!existsSync(path)) {
-    fail(`Expected release asset was not found: ${path}`)
+function resolveAsset(label, candidateNames) {
+  const existingCandidate = candidateNames.find((candidateName) => existsSync(resolve(distDir, candidateName)))
+
+  if (existingCandidate) {
+    return resolve(distDir, existingCandidate)
   }
+
+  const availableAssets = existsSync(distDir) ? readdirSync(distDir).sort() : []
+  const checkedAssets = candidateNames.map((candidateName) => resolve(distDir, candidateName)).join(', ')
+  const availableSummary = availableAssets.length > 0 ? ` Available dist assets: ${availableAssets.join(', ')}` : ''
+
+  fail(`Expected ${label} release asset was not found. Checked: ${checkedAssets}.${availableSummary}`)
+}
+
+function getMacZipCandidates(architecture) {
+  if (architecture === 'x64') {
+    return [
+      `${productName}-${releaseVersion}-${architecture}-mac.zip`,
+      `${productName}-${releaseVersion}-mac.zip`
+    ]
+  }
+
+  return [`${productName}-${releaseVersion}-${architecture}-mac.zip`]
+}
+
+function getAppImageCandidates(architecture) {
+  if (architecture === 'x64') {
+    return [
+      `${packageName}-${releaseVersion}-${architecture}.AppImage`,
+      `${packageName}-${releaseVersion}-x86_64.AppImage`
+    ]
+  }
+
+  return [`${packageName}-${releaseVersion}-${architecture}.AppImage`]
+}
+
+function collectReleaseAssets() {
+  return options.architectures.flatMap((architecture) => [
+    resolveAsset('macOS DMG', [`${packageName}-${releaseVersion}-${architecture}.dmg`]),
+    resolveAsset('macOS ZIP', getMacZipCandidates(architecture)),
+    resolveAsset('Windows installer', [`${packageName}-${releaseVersion}-${architecture}-setup.exe`]),
+    resolveAsset('Linux AppImage', getAppImageCandidates(architecture))
+  ])
 }
 
 async function githubRequest(path, init = {}) {
@@ -392,7 +427,7 @@ if (!options.skipBuild) {
   }
 }
 
-assets.forEach(ensureAsset)
+assets = collectReleaseAssets()
 
 if (options.dryRun) {
   console.log('\nDry run summary:')
