@@ -11,7 +11,7 @@
 
 TerminalFlow is an Electron-based terminal and SSH workspace built with React and TypeScript. It is designed for developers and operators who want local shells, saved SSH connections, SFTP browsing, and lightweight file editing in a single interface instead of juggling multiple tools.
 
-## ✨ Features
+## Features
 
 - Local terminal tabs powered by `xterm.js` and `node-pty`
 - Saved SSH servers with password or private-key authentication
@@ -23,7 +23,7 @@ TerminalFlow is an Electron-based terminal and SSH workspace built with React an
 - Previous session restore plus settings import/export
 - Build targets configured for macOS, Windows, and Linux
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Requirements
 
@@ -62,7 +62,7 @@ If macOS blocks the app when opening it, clear the app's extended attributes bef
 xattr -cr /Applications/TerminalFlow.app
 ```
 
-## 🧱 Stack
+## Stack
 
 - Electron
 - React
@@ -71,7 +71,7 @@ xattr -cr /Applications/TerminalFlow.app
 - `ssh2-sftp-client`
 - CodeMirror
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 src/main       Electron main process
@@ -80,6 +80,6 @@ src/renderer   React UI
 src/shared     Shared app types and contracts
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Issues and pull requests are welcome. If you plan to make a larger change, open an issue first so the scope and direction are clear before implementation starts.
