@@ -297,20 +297,20 @@ function formatShellName(shellPath: string): string {
   return basename(shellPath).replace(/\.exe$/i, '') || 'shell'
 }
 
-function getShellLaunchArgs(shellPath: string): string[] {
-  if (process.platform !== 'darwin') {
-    return []
+function mergePathEntries(entries: string[]): string {
+  const dedupedEntries: string[] = []
+  const seenEntries = new Set<string>()
+
+  for (const entry of entries) {
+    if (entry === '' || seenEntries.has(entry)) {
+      continue
+    }
+
+    seenEntries.add(entry)
+    dedupedEntries.push(entry)
   }
 
-  const shellName = formatShellName(shellPath)
-
-  // macOS GUI apps often start with a reduced environment. Launch the default
-  // shell as interactive + login so standard PATH setup runs before the prompt.
-  if (shellName === 'zsh' || shellName === 'bash' || shellName === 'sh') {
-    return ['-il']
-  }
-
-  return []
+  return dedupedEntries.join(delimiter)
 }
 
 function formatTerminalTitle(cwd: string, shellName: string): string {
@@ -447,6 +447,18 @@ function getTerminalEnv(cwd: string, extraEnv?: Record<string, string>): Record<
   env.TERM = 'xterm-256color'
   env.TERM_PROGRAM = app.getName()
 
+  if (process.platform === 'darwin') {
+    env.PATH = mergePathEntries([
+      ...(env.PATH ?? '').split(delimiter).filter((entry) => entry !== ''),
+      '/opt/homebrew/bin',
+      '/opt/homebrew/sbin',
+      '/usr/local/bin',
+      '/usr/local/sbin',
+      '/opt/local/bin',
+      '/opt/local/sbin'
+    ])
+  }
+
   if (extraEnv) {
     for (const [key, value] of Object.entries(extraEnv)) {
       env[key] = value
@@ -492,11 +504,10 @@ function spawnTerminalProcess(options?: TerminalCreateOptions): TerminalSpawnRes
   for (const shellPath of getShellCandidates()) {
     try {
       const shellName = formatShellName(shellPath)
-      const shellArgs = getShellLaunchArgs(shellPath)
 
       return {
         cwd,
-        process: spawn(shellPath, shellArgs, {
+        process: spawn(shellPath, [], {
           name: 'xterm-256color',
           cols: 100,
           rows: 30,

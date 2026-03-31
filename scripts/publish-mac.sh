@@ -17,8 +17,32 @@ npm run build
 # framework in a non-notarized local app bundle.
 npx --no-install electron-builder --mac dir --config.mac.identity=- --config.mac.hardenedRuntime=false
 
-APP_PATH="$(find dist -maxdepth 4 -type d -name '*.app' 2>/dev/null | sort | tail -n 1 || true)"
-if [[ -z "$APP_PATH" ]]; then
+MACHINE_ARCH="$(uname -m)"
+case "$MACHINE_ARCH" in
+  arm64)
+    PREFERRED_APP_DIRS=("dist/mac-arm64" "dist/mac")
+    ;;
+  x86_64)
+    PREFERRED_APP_DIRS=("dist/mac" "dist/mac-arm64")
+    ;;
+  *)
+    PREFERRED_APP_DIRS=("dist/mac-arm64" "dist/mac")
+    ;;
+esac
+
+APP_PATH=""
+
+for app_dir in "${PREFERRED_APP_DIRS[@]}"; do
+  if [[ -d "$app_dir" ]]; then
+    candidate="$(find "$app_dir" -maxdepth 2 -type d -name '*.app' 2>/dev/null | sort | tail -n 1 || true)"
+    if [[ -n "$candidate" ]]; then
+      APP_PATH="$candidate"
+      break
+    fi
+  fi
+done
+
+if [[ -z "$APP_PATH" && -d "release" ]]; then
   APP_PATH="$(find release -maxdepth 5 -type d -name '*.app' 2>/dev/null | sort | tail -n 1 || true)"
 fi
 
@@ -30,6 +54,7 @@ fi
 APP_NAME="$(basename "$APP_PATH")"
 TARGET_APP="/Applications/${APP_NAME}"
 
+echo "Selected app bundle: $APP_PATH"
 echo "Installing ${APP_NAME} to /Applications..."
 if [[ -e "$TARGET_APP" ]]; then
   rm -rf "$TARGET_APP"
