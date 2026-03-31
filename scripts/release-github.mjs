@@ -437,13 +437,20 @@ async function createOrUpdateRelease() {
       return existingRelease
     }
 
+    const patchPayload = {
+      draft: options.draft,
+      name: tag,
+      prerelease: options.prerelease
+    }
+
+    if (options.notesFile) {
+      patchPayload.body = notes
+    } else if (typeof existingRelease.body === 'string') {
+      patchPayload.body = existingRelease.body
+    }
+
     const patchResponse = await githubRequest(`/repos/${owner}/${repo}/releases/${existingRelease.id}`, {
-      body: JSON.stringify({
-        body: notes ?? existingRelease.body,
-        draft: options.draft,
-        name: tag,
-        prerelease: options.prerelease
-      }),
+      body: JSON.stringify(patchPayload),
       headers: {
         'Content-Type': 'application/json'
       },
@@ -453,16 +460,21 @@ async function createOrUpdateRelease() {
     return patchResponse.json()
   }
 
+  const createPayload = {
+    draft: options.draft,
+    generate_release_notes: !options.notesFile,
+    name: tag,
+    prerelease: options.prerelease,
+    tag_name: tag,
+    target_commitish: branch
+  }
+
+  if (options.notesFile) {
+    createPayload.body = notes
+  }
+
   const createResponse = await githubRequest(`/repos/${owner}/${repo}/releases`, {
-    body: JSON.stringify({
-      body: notes,
-      draft: options.draft,
-      generate_release_notes: !notes,
-      name: tag,
-      prerelease: options.prerelease,
-      tag_name: tag,
-      target_commitish: branch
-    }),
+    body: JSON.stringify(createPayload),
     headers: {
       'Content-Type': 'application/json'
     },
