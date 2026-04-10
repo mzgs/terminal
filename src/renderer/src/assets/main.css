@@ -843,27 +843,27 @@ body {
   z-index: 40;
   display: grid;
   gap: 0;
-  min-width: 184px;
-  padding: 4px;
+  min-width: 172px;
+  padding: 3px;
   border: 1px solid rgba(119, 215, 255, 0.12);
-  border-radius: 10px;
+  border-radius: 9px;
   background: #0c121c;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
   -webkit-app-region: no-drag;
 }
 
 .ssh-browser-context-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--color-text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   text-align: left;
 }
@@ -884,8 +884,8 @@ body {
 }
 
 .ssh-browser-context-menu-icon {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   stroke-width: 2.1;
   flex: 0 0 auto;
 }
@@ -896,12 +896,12 @@ body {
   z-index: 40;
   display: grid;
   gap: 0;
-  width: min(220px, calc(100vw - 24px));
-  padding: 4px;
+  width: min(204px, calc(100vw - 24px));
+  padding: 3px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(8, 12, 18, 0.98);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.36);
   -webkit-app-region: no-drag;
 }
 
@@ -909,15 +909,15 @@ body {
 .tab-context-menu-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 9px;
+  padding: 6px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: #f5fbff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   text-align: left;
 }
@@ -946,7 +946,7 @@ body {
 .terminal-context-menu-divider,
 .tab-context-menu-divider {
   height: 1px;
-  margin: 4px 6px;
+  margin: 3px 5px;
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -954,10 +954,10 @@ body {
 .tab-context-menu-item-icon-shell {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   color: rgba(167, 231, 255, 0.92);
-  flex: 0 0 18px;
+  flex: 0 0 16px;
 }
 
 .terminal-context-menu-label,
@@ -970,8 +970,8 @@ body {
 
 .terminal-context-menu-icon,
 .tab-context-menu-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   stroke-width: 2.1;
   flex: 0 0 auto;
 }

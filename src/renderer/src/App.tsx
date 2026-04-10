@@ -8797,9 +8797,9 @@ function TerminalApp(): React.JSX.Element {
       closeTabContextMenu()
 
       const menuPadding = 12
-      const menuWidth = 184
+      const menuWidth = 172
       const menuItemCount = canEditSshRemoteFile(entry) ? 4 : 3
-      const menuHeight = 16 + menuItemCount * 44
+      const menuHeight = 12 + menuItemCount * 36
       const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
@@ -8825,8 +8825,8 @@ function TerminalApp(): React.JSX.Element {
       event.stopPropagation()
 
       const menuPadding = 12
-      const menuWidth = 220
-      const menuHeight = 192
+      const menuWidth = 204
+      const menuHeight = 164
       const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
@@ -8873,8 +8873,8 @@ function TerminalApp(): React.JSX.Element {
         Number(Boolean(quickExtractAction))
 
       const menuPadding = 12
-      const menuWidth = 296
-      const menuHeight = 320 + quickActionCount * 44
+      const menuWidth = 204
+      const menuHeight = 256 + quickActionCount * 36
       const maxX = Math.max(menuPadding, window.innerWidth - menuWidth - menuPadding)
       const maxY = Math.max(menuPadding, window.innerHeight - menuHeight - menuPadding)
 
@@ -10105,20 +10105,6 @@ function TerminalApp(): React.JSX.Element {
             terminalContextMenu.quickDownloadAction ||
             terminalContextMenu.quickExtractAction ? (
               <>
-                {terminalContextMenu.quickChmodRunAction ? (
-                  <button
-                    className="terminal-context-menu-item"
-                    onClick={handleChmodRunTerminalSelection}
-                    role="menuitem"
-                    title="Chmod +x and run"
-                    type="button"
-                  >
-                    <span className="terminal-context-menu-item-icon-shell">
-                      <Play aria-hidden="true" className="terminal-context-menu-icon" />
-                    </span>
-                    <span className="terminal-context-menu-label">Chmod +x &amp; Run</span>
-                  </button>
-                ) : null}
                 {canEditTerminalContextSelection ? (
                   <button
                     className="terminal-context-menu-item"
@@ -10145,6 +10131,20 @@ function TerminalApp(): React.JSX.Element {
                       <Download aria-hidden="true" className="terminal-context-menu-icon" />
                     </span>
                     <span className="terminal-context-menu-label">Download</span>
+                  </button>
+                ) : null}
+                {terminalContextMenu.quickChmodRunAction ? (
+                  <button
+                    className="terminal-context-menu-item"
+                    onClick={handleChmodRunTerminalSelection}
+                    role="menuitem"
+                    title="Chmod +x and run"
+                    type="button"
+                  >
+                    <span className="terminal-context-menu-item-icon-shell">
+                      <Play aria-hidden="true" className="terminal-context-menu-icon" />
+                    </span>
+                    <span className="terminal-context-menu-label">Chmod +x &amp; Run</span>
                   </button>
                 ) : null}
                 {terminalContextMenu.quickExtractAction ? (
