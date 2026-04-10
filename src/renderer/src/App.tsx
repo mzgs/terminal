@@ -2349,7 +2349,27 @@ function formatDataSize(bytes: number): string {
     return `${(bytes / 1024).toFixed(bytes >= 10 * 1024 ? 0 : 1)} KB`
   }
 
-  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`
+}
+
+function getSshUploadProgressTitle(progress: SshUploadProgressEvent): string {
+  const progressPercent = Math.round(progress.percent)
+  const currentItemName = progress.currentPath ? getRemotePathBaseName(progress.currentPath) : null
+
+  return [
+    progress.status === 'completed'
+      ? `Upload to ${progress.targetPath} completed`
+      : `Uploading to ${progress.targetPath}`,
+    `Progress: ${progressPercent}%`,
+    `Uploaded: ${formatDataSize(progress.transferredBytes)} / ${formatDataSize(progress.totalBytes)}`,
+    currentItemName ? `Current: ${currentItemName}` : null
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n')
 }
 
 function detectSshRemoteEditorLineEnding(content: string): SshRemoteEditorLineEnding {
@@ -9556,6 +9576,7 @@ function TerminalApp(): React.JSX.Element {
         strokeDashoffset: uploadProgressOffset
       }
     : undefined
+  const uploadProgressTitle = sshUploadProgress ? getSshUploadProgressTitle(sshUploadProgress) : null
 
   return (
     <main className={`app-shell ${platformClassName}`}>
@@ -9638,16 +9659,9 @@ function TerminalApp(): React.JSX.Element {
           {sshUploadProgress ? (
             <div
               aria-label={
-                isUploadCompleted
-                  ? `Upload to ${sshUploadProgress.targetPath} completed`
-                  : `Upload progress ${uploadProgressPercent}%`
+                uploadProgressTitle ? uploadProgressTitle.replace(/\n/g, '. ') : undefined
               }
               className={`window-upload-progress${isUploadCompleted ? ' is-complete' : ''}`}
-              title={
-                isUploadCompleted
-                  ? `Upload to ${sshUploadProgress.targetPath} completed`
-                  : `Uploading to ${sshUploadProgress.targetPath}: ${uploadProgressPercent}%`
-              }
             >
               {isUploadCompleted ? (
                 <Check aria-hidden="true" className="window-upload-success-icon" />
@@ -9663,6 +9677,11 @@ function TerminalApp(): React.JSX.Element {
                   />
                 </svg>
               )}
+              {uploadProgressTitle ? (
+                <span aria-hidden="true" className="window-progress-tooltip">
+                  {uploadProgressTitle}
+                </span>
+              ) : null}
             </div>
           ) : null}
           <button
@@ -10199,7 +10218,10 @@ function TerminalApp(): React.JSX.Element {
                         onClick={() => handleUploadToSshBrowser(browserState)}
                         type="button"
                       >
-                        <Upload aria-hidden="true" className="ssh-browser-toolbar-button-icon" />
+                        <Upload
+                          aria-hidden="true"
+                          className="ssh-browser-toolbar-button-icon ssh-browser-toolbar-button-icon-upload"
+                        />
                         Upload
                       </button>
                       <button

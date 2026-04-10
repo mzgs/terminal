@@ -181,6 +181,38 @@ body {
   stroke-width: 2.75;
 }
 
+.window-progress-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  z-index: 30;
+  left: -24px;
+  min-width: max-content;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(10, 14, 20, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  color: #dce6f4;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 140ms ease;
+}
+
+.window-upload-progress:hover .window-progress-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 .tab-item {
   position: relative;
   display: flex;
@@ -542,6 +574,11 @@ body {
   height: 16px;
   stroke-width: 2.1;
   flex: 0 0 auto;
+}
+
+.ssh-browser-toolbar-button-icon-upload {
+  width: 14px;
+  height: 14px;
 }
 
 .ssh-browser-toolbar-button-icon.is-spinning {
