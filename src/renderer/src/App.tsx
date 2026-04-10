@@ -63,6 +63,7 @@ import {
   FolderPlus,
   Palette,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Rows2,
@@ -230,6 +231,7 @@ type TextEditorFile = LocalTextFile | SshRemoteTextFile
 
 interface TerminalContextMenuState {
   paneId: string
+  quickChmodRunAction: TerminalQuickChmodRunAction | null
   quickDownloadAction: TerminalQuickDownloadAction | null
   quickExtractAction: TerminalQuickExtractAction | null
   selectionText: string
@@ -244,6 +246,10 @@ interface TerminalQuickDownloadAction {
 }
 
 interface TerminalQuickExtractAction {
+  command: string
+}
+
+interface TerminalQuickChmodRunAction {
   command: string
 }
 
@@ -2308,6 +2314,70 @@ function getRemotePathBaseName(path: string): string {
   const lastSlashIndex = Math.max(normalizedPath.lastIndexOf('/'), normalizedPath.lastIndexOf('\\'))
 
   return lastSlashIndex >= 0 ? normalizedPath.slice(lastSlashIndex + 1) : normalizedPath
+}
+
+function shouldShowTerminalQuickChmodRunAction(path: string): boolean {
+  const fileName = getRemotePathBaseName(path)
+
+  if (fileName === '' || fileName === '.' || fileName === '..') {
+    return false
+  }
+
+  const normalizedFileName = fileName.toLowerCase()
+  return normalizedFileName.endsWith('.sh') || !fileName.includes('.')
+}
+
+function getTerminalQuickChmodRunAction(
+  terminalItem: Pick<TabPaneRecord, 'restoreState'>,
+  selectionText: string
+): TerminalQuickChmodRunAction | null {
+  if (terminalItem.restoreState.kind === 'local' && usesWindowsShellQuoting()) {
+    return null
+  }
+
+  const normalizedSelection =
+    terminalItem.restoreState.kind === 'ssh'
+      ? normalizeTerminalSelectionForRemotePath(selectionText)
+      : normalizeTerminalSelectionForArchivePath(selectionText)
+
+  if (
+    !normalizedSelection ||
+    normalizedSelection === '~' ||
+    normalizedSelection.startsWith('~\\')
+  ) {
+    return null
+  }
+
+  let resolvedPath = normalizedSelection
+
+  if (terminalItem.restoreState.kind === 'ssh') {
+    if (
+      normalizedSelection.startsWith('/') ||
+      normalizedSelection.startsWith('~/') ||
+      normalizedSelection === '~'
+    ) {
+      resolvedPath = normalizeRemotePath(normalizedSelection)
+    } else if (terminalItem.restoreState.cwd) {
+      resolvedPath = normalizeRemotePath(
+        joinRemoteDirectoryPath(terminalItem.restoreState.cwd, normalizedSelection)
+      )
+    }
+  } else if (isAbsoluteLocalPath(normalizedSelection)) {
+    resolvedPath = normalizedSelection
+  } else if (terminalItem.restoreState.cwd) {
+    resolvedPath = joinLocalDirectoryPath(terminalItem.restoreState.cwd, normalizedSelection)
+  }
+
+  if (!shouldShowTerminalQuickChmodRunAction(resolvedPath)) {
+    return null
+  }
+
+  const useWindowsQuoting = terminalItem.restoreState.kind === 'local' && usesWindowsShellQuoting()
+  const quotedPath = quotePathForShell(resolvedPath, useWindowsQuoting)
+
+  return {
+    command: `chmod +x ${quotedPath} && ${quotedPath}`
+  }
 }
 
 function getSshRemoteEditorSyntaxLanguage(path: string): SshRemoteEditorSyntaxLanguage {
@@ -8788,6 +8858,7 @@ function TerminalApp(): React.JSX.Element {
       const selectionText = runtime.terminal.getSelection()
       const tab = tabsRef.current.find((currentTab) => currentTab.id === tabId)
       const pane = tab ? getPaneById(tab, paneId) : null
+      const quickChmodRunAction = pane ? getTerminalQuickChmodRunAction(pane, selectionText) : null
       const quickDownloadAction = pane ? getTerminalQuickDownloadAction(pane, selectionText) : null
       const quickLocalEditPath = pane ? getTerminalQuickLocalEditPath(pane, selectionText) : null
       const quickExtractAction = pane ? getTerminalQuickExtractAction(pane, selectionText) : null
@@ -8796,6 +8867,7 @@ function TerminalApp(): React.JSX.Element {
           ? quickDownloadAction !== null
           : quickLocalEditPath !== null
       const quickActionCount =
+        Number(Boolean(quickChmodRunAction)) +
         Number(Boolean(quickDownloadAction)) +
         Number(Boolean(hasQuickEditAction)) +
         Number(Boolean(quickExtractAction))
@@ -8809,6 +8881,7 @@ function TerminalApp(): React.JSX.Element {
       activatePane(tabId, paneId, false)
       setTerminalContextMenu({
         paneId,
+        quickChmodRunAction,
         quickDownloadAction,
         quickExtractAction,
         selectionText,
@@ -9095,6 +9168,27 @@ function TerminalApp(): React.JSX.Element {
     runtime.terminal.clearSelection()
     runtime.terminal.focus()
     runtime.terminal.input(`${currentMenu.quickExtractAction.command}\r`)
+    closeTerminalContextMenu()
+  }, [closeTerminalContextMenu, getPaneRuntime, terminalContextMenu])
+
+  const handleChmodRunTerminalSelection = useCallback((): void => {
+    const currentMenu = terminalContextMenu
+
+    if (!currentMenu?.quickChmodRunAction) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    const runtime = getPaneRuntime(currentMenu.paneId)
+
+    if (!runtime || runtime.closed || runtime.disposed || runtime.terminalId === null) {
+      closeTerminalContextMenu()
+      return
+    }
+
+    runtime.terminal.clearSelection()
+    runtime.terminal.focus()
+    runtime.terminal.input(`${currentMenu.quickChmodRunAction.command}\r`)
     closeTerminalContextMenu()
   }, [closeTerminalContextMenu, getPaneRuntime, terminalContextMenu])
 
@@ -10007,9 +10101,24 @@ function TerminalApp(): React.JSX.Element {
             }}
           >
             {canEditTerminalContextSelection ||
+            terminalContextMenu.quickChmodRunAction ||
             terminalContextMenu.quickDownloadAction ||
             terminalContextMenu.quickExtractAction ? (
               <>
+                {terminalContextMenu.quickChmodRunAction ? (
+                  <button
+                    className="terminal-context-menu-item"
+                    onClick={handleChmodRunTerminalSelection}
+                    role="menuitem"
+                    title="Chmod +x and run"
+                    type="button"
+                  >
+                    <span className="terminal-context-menu-item-icon-shell">
+                      <Play aria-hidden="true" className="terminal-context-menu-icon" />
+                    </span>
+                    <span className="terminal-context-menu-label">Chmod +x &amp; Run</span>
+                  </button>
+                ) : null}
                 {canEditTerminalContextSelection ? (
                   <button
                     className="terminal-context-menu-item"
