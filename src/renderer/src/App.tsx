@@ -2936,6 +2936,28 @@ function isXtermHelperTextarea(target: EventTarget | null): boolean {
   return target instanceof HTMLTextAreaElement && target.classList.contains('xterm-helper-textarea')
 }
 
+function getMacTerminalNavigationShortcut(event: KeyboardEvent): string | null {
+  if (
+    event.type !== 'keydown' ||
+    !event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    event.shiftKey
+  ) {
+    return null
+  }
+
+  if (event.key === 'ArrowLeft') {
+    return '\u001bOH'
+  }
+
+  if (event.key === 'ArrowRight') {
+    return '\u001bOF'
+  }
+
+  return null
+}
+
 function appendSearchCell(
   searchableLine: SearchableLine,
   row: number,
@@ -5423,6 +5445,7 @@ function TerminalApp(): React.JSX.Element {
     typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
       ? 'platform-macos'
       : 'platform-default'
+  const isMacPlatform = platformClassName === 'platform-macos'
   const selectedTerminalColorScheme =
     terminalColorSchemesById.get(selectedTerminalColorSchemeId) ?? defaultTerminalColorScheme
   const selectedTerminalTheme = getConfiguredTerminalTheme(
@@ -6974,6 +6997,23 @@ function TerminalApp(): React.JSX.Element {
         terminalId: null
       }
 
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (!isMacPlatform) {
+          return true
+        }
+
+        const shortcutData = getMacTerminalNavigationShortcut(event)
+
+        if (shortcutData === null) {
+          return true
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+        terminal.input(shortcutData)
+        return false
+      })
+
       runtimesRef.current.set(paneId, runtime)
 
       if (activeTabIdRef.current === tabId) {
@@ -7020,6 +7060,7 @@ function TerminalApp(): React.JSX.Element {
       getTerminalThemeForSearchState,
       getActivePaneIdForTab,
       queueSearchRefresh,
+      isMacPlatform,
       selectedTerminalCursorBlink,
       selectedTerminalCursorStyle,
       selectedTerminalCursorWidth,
