@@ -3133,6 +3133,8 @@ function getMacTerminalNavigationShortcutInput(input: Electron.Input): string | 
 
   const isArrowLeft = input.code === 'ArrowLeft' || input.key === 'ArrowLeft'
   const isArrowRight = input.code === 'ArrowRight' || input.key === 'ArrowRight'
+  const isArrowUp = input.code === 'ArrowUp' || input.key === 'ArrowUp'
+  const isArrowDown = input.code === 'ArrowDown' || input.key === 'ArrowDown'
 
   if (input.meta && !input.alt) {
     if (isArrowLeft) {
@@ -3141,6 +3143,14 @@ function getMacTerminalNavigationShortcutInput(input: Electron.Input): string | 
 
     if (isArrowRight) {
       return '\u001bOF'
+    }
+
+    if (isArrowUp) {
+      return '\u001b[5~'
+    }
+
+    if (isArrowDown) {
+      return '\u001b[6~'
     }
   }
 
@@ -3217,8 +3227,12 @@ function createMainWindow(): BrowserWindow {
       input.type === 'keyUp' &&
       (input.code === 'ArrowLeft' ||
         input.code === 'ArrowRight' ||
+        input.code === 'ArrowUp' ||
+        input.code === 'ArrowDown' ||
         input.key === 'ArrowLeft' ||
-        input.key === 'ArrowRight')
+        input.key === 'ArrowRight' ||
+        input.key === 'ArrowUp' ||
+        input.key === 'ArrowDown')
     ) {
       pendingTerminalNavigationShortcuts.delete(nextMainWindow.webContents.id)
     }
