@@ -46,12 +46,24 @@ import {
 import type { TerminalCreateOptions, TerminalCreateResult } from '../shared/terminal'
 
 interface TerminalSession {
+  cols: number
   cwdRefreshTimeout: NodeJS.Timeout | null
   lastCwd: string | null
   ownerId: number
   process: IPty
+  processGeneration: number
+  rows: number
   shellName: string
+  sshHostKeyRecovery: SshHostKeyRecoveryState | null
   trackCwd: boolean
+}
+
+interface SshHostKeyRecoveryState {
+  attempted: boolean
+  buffer: string
+  configId: string
+  cwd?: string
+  isRestarting: boolean
 }
 
 interface SftpBrowserSession {
@@ -130,9 +142,13 @@ const sshConnectTimeoutSeconds = 10
 const sshServerAliveIntervalSeconds = 5
 const sshServerAliveCountMax = 2
 const sshStrictHostKeyCheckingMode = 'accept-new'
+const sshHostIdentificationChangedPattern = /host identification has changed/i
+const sshHostKeyRecoveryBufferLimit = 8192
 const sftpBrowserSessionIdleTimeoutMs = 60_000
 const maxLocalTextFileBytes = 100 * 1024 * 1024
 const maxSshRemoteTextFileBytes = 16 * 1024 * 1024
+const defaultTerminalCols = 100
+const defaultTerminalRows = 30
 const defaultMainWindowWidth = 1000
 const defaultMainWindowHeight = 600
 const minMainWindowWidth = 640
@@ -487,8 +503,8 @@ function spawnTerminalProcess(options?: TerminalCreateOptions): TerminalSpawnRes
         cwd,
         process: spawn(commandPath, options.args ?? [], {
           name: 'xterm-256color',
-          cols: 100,
-          rows: 30,
+          cols: defaultTerminalCols,
+          rows: defaultTerminalRows,
           cwd,
           env
         }),
@@ -512,8 +528,8 @@ function spawnTerminalProcess(options?: TerminalCreateOptions): TerminalSpawnRes
         cwd,
         process: spawn(shellPath, [], {
           name: 'xterm-256color',
-          cols: 100,
-          rows: 30,
+          cols: defaultTerminalCols,
+          rows: defaultTerminalRows,
           cwd,
           env
         }),
@@ -528,6 +544,26 @@ function spawnTerminalProcess(options?: TerminalCreateOptions): TerminalSpawnRes
   }
 
   throw new Error(`Unable to start a terminal shell in "${cwd}". ${failures.join(' | ')}`)
+}
+
+function hasSshHostIdentificationChangedOutput(output: string): boolean {
+  return sshHostIdentificationChangedPattern.test(output)
+}
+
+function hasSshRemoteCwdOutput(output: string): boolean {
+  return output.includes(sshRemoteCwdOscPrefix)
+}
+
+function rememberSshTerminalOutput(recoveryState: SshHostKeyRecoveryState, data: string): string {
+  const nextBuffer = `${recoveryState.buffer}${data}`
+
+  if (nextBuffer.length <= sshHostKeyRecoveryBufferLimit) {
+    recoveryState.buffer = nextBuffer
+    return recoveryState.buffer
+  }
+
+  recoveryState.buffer = nextBuffer.slice(nextBuffer.length - sshHostKeyRecoveryBufferLimit)
+  return recoveryState.buffer
 }
 
 function destroyTerminal(terminalId: number): void {
@@ -554,8 +590,14 @@ function resizeTerminal(terminalId: number, cols: number, rows: number): void {
     return
   }
 
+  const nextCols = Math.max(20, cols)
+  const nextRows = Math.max(8, rows)
+
+  session.cols = nextCols
+  session.rows = nextRows
+
   try {
-    session.process.resize(Math.max(20, cols), Math.max(8, rows))
+    session.process.resize(nextCols, nextRows)
   } catch (error) {
     const code =
       typeof error === 'object' && error !== null && 'code' in error
@@ -804,7 +846,8 @@ function invalidateSftpBrowserSessionsForConfig(configId: string): void {
 
 function createTerminal(
   webContents: WebContents,
-  options?: TerminalCreateOptions
+  options?: TerminalCreateOptions,
+  sshHostKeyRecovery: SshHostKeyRecoveryState | null = null
 ): TerminalCreateResult {
   registerOwnerCleanup(webContents)
 
@@ -817,11 +860,15 @@ function createTerminal(
     trackCwd
   } = spawnTerminalProcess(options)
   const session: TerminalSession = {
+    cols: defaultTerminalCols,
     cwdRefreshTimeout: null,
     lastCwd: null,
     ownerId: webContents.id,
     process: terminalProcess,
+    processGeneration: 0,
+    rows: defaultTerminalRows,
     shellName,
+    sshHostKeyRecovery,
     trackCwd
   }
 
@@ -831,10 +878,32 @@ function createTerminal(
     startTerminalCwdTracking(terminalId, session, webContents, cwd)
   }
 
+  attachTerminalProcessHandlers(terminalId, session, webContents)
+
+  return {
+    terminalId,
+    title
+  }
+}
+
+function attachTerminalProcessHandlers(
+  terminalId: number,
+  session: TerminalSession,
+  webContents: WebContents
+): void {
+  const processGeneration = session.processGeneration
+  const terminalProcess = session.process
+
   terminalProcess.onData((data) => {
+    if (session.processGeneration !== processGeneration) {
+      return
+    }
+
     if (!webContents.isDestroyed()) {
       webContents.send('terminal:data', { terminalId, data })
     }
+
+    maybeRecoverSshHostKeyMismatch(terminalId, session, webContents, data)
 
     if (session.trackCwd) {
       queueTerminalCwdRefresh(terminalId, session, webContents)
@@ -842,6 +911,10 @@ function createTerminal(
   })
 
   terminalProcess.onExit(({ exitCode, signal }) => {
+    if (session.processGeneration !== processGeneration) {
+      return
+    }
+
     stopTerminalCwdTracking(session)
     terminals.delete(terminalId)
 
@@ -849,10 +922,116 @@ function createTerminal(
       webContents.send('terminal:exit', { terminalId, exitCode, signal })
     }
   })
+}
 
-  return {
-    terminalId,
-    title
+function maybeRecoverSshHostKeyMismatch(
+  terminalId: number,
+  session: TerminalSession,
+  webContents: WebContents,
+  data: string
+): void {
+  const recoveryState = session.sshHostKeyRecovery
+
+  if (!recoveryState || recoveryState.attempted || recoveryState.isRestarting) {
+    return
+  }
+
+  const startupOutput = rememberSshTerminalOutput(recoveryState, data)
+
+  if (hasSshRemoteCwdOutput(startupOutput)) {
+    recoveryState.attempted = true
+    return
+  }
+
+  if (!hasSshHostIdentificationChangedOutput(startupOutput)) {
+    return
+  }
+
+  recoveryState.attempted = true
+  recoveryState.isRestarting = true
+
+  void recoverSshHostKeyMismatch(terminalId, session, webContents, recoveryState)
+}
+
+async function recoverSshHostKeyMismatch(
+  terminalId: number,
+  session: TerminalSession,
+  webContents: WebContents,
+  recoveryState: SshHostKeyRecoveryState
+): Promise<void> {
+  try {
+    const { config, password } = resolveSshServerConnection(recoveryState.configId)
+
+    if (!webContents.isDestroyed()) {
+      webContents.send('terminal:data', {
+        terminalId,
+        data: '\r\nTerminalFlow: SSH host key changed. Cleaning saved known_hosts entries and reconnecting once...\r\n'
+      })
+    }
+
+    const removalResult = removeKnownHostsEntries(config.host, config.port)
+    const removedHostsMessage =
+      removalResult.removedHosts.length > 0
+        ? `TerminalFlow: Removed ${removalResult.removedHosts.join(', ')} from known_hosts.\r\n`
+        : 'TerminalFlow: No matching known_hosts entries were found.\r\n'
+
+    if (!webContents.isDestroyed()) {
+      webContents.send('terminal:data', { terminalId, data: removedHostsMessage })
+    }
+
+    replaceTerminalProcess(
+      terminalId,
+      session,
+      webContents,
+      buildSshTerminalCreateOptions(config, password, recoveryState.cwd)
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    if (!webContents.isDestroyed()) {
+      webContents.send('terminal:data', {
+        terminalId,
+        data: `TerminalFlow: Unable to auto-clean known_hosts and reconnect. ${message}\r\n`
+      })
+    }
+  } finally {
+    recoveryState.isRestarting = false
+  }
+}
+
+function replaceTerminalProcess(
+  terminalId: number,
+  session: TerminalSession,
+  webContents: WebContents,
+  options: TerminalCreateOptions
+): void {
+  const previousProcess = session.process
+  const { cwd, process: terminalProcess, shellName, trackCwd } = spawnTerminalProcess(options)
+
+  stopTerminalCwdTracking(session)
+
+  session.lastCwd = null
+  session.process = terminalProcess
+  session.processGeneration += 1
+  session.shellName = shellName
+  session.trackCwd = trackCwd
+
+  if (trackCwd) {
+    startTerminalCwdTracking(terminalId, session, webContents, cwd)
+  }
+
+  try {
+    terminalProcess.resize(session.cols, session.rows)
+  } catch (error) {
+    console.warn(`Failed to resize replacement terminal ${terminalId}`, error)
+  }
+
+  attachTerminalProcessHandlers(terminalId, session, webContents)
+
+  try {
+    previousProcess.kill()
+  } catch (error) {
+    console.error(`Failed to stop stale terminal process ${terminalId}`, error)
   }
 }
 
@@ -2806,7 +2985,13 @@ function connectToSshServer(
 ): TerminalCreateResult {
   const { config, password } = resolveSshServerConnection(payload.configId)
 
-  return createTerminal(webContents, buildSshTerminalCreateOptions(config, password, payload.cwd))
+  return createTerminal(webContents, buildSshTerminalCreateOptions(config, password, payload.cwd), {
+    attempted: false,
+    buffer: '',
+    configId: payload.configId,
+    cwd: payload.cwd,
+    isRestarting: false
+  })
 }
 
 async function listSshDirectory(
